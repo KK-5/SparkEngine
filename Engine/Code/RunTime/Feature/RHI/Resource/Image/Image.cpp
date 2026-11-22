@@ -26,10 +26,8 @@ namespace Spark::RHI
             for (uint16_t mipSlice = subresourceRange.m_mipSliceMin; mipSlice <= mipSliceMax; ++mipSlice)
             {
                 ImageSubresourceLayout subresourceLayout =
-                    GetImageSubresourceLayout(imageDescriptor, ImageSubresource(mipSlice, arraySlice));
+                    GetRowAlignedImageSubresourceLayout(imageDescriptor, ImageSubresource(mipSlice, arraySlice), limits);
 
-                subresourceLayout.m_bytesPerRow = AlignUp(subresourceLayout.m_bytesPerRow, limits.m_imageCopyRowPitchAlignment);
-                subresourceLayout.m_bytesPerImage = subresourceLayout.m_rowCount * subresourceLayout.m_bytesPerRow;
                 subresourceLayout.m_offset = byteOffset;
 
                 if (subresourceLayouts)

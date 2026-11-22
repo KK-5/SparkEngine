@@ -122,8 +122,8 @@ namespace Spark::Render
         //! many records the argument buffer holds. Runs after the transient stage.
         void CompileItemIndirectArguments(PassContext& passContext, RHIContext& context);
 
-        //! Give each copy (ItemCopy) the backings of the buffers it reads and writes. Runs after
-        //! the transient stage.
+        //! Give each copy (ItemCopy) its source and destination backings and any image copy
+        //! layout it needs. Runs after the transient stage.
         void CompileItemCopies(PassContext& passContext, RHIContext& context);
 
         //! Resolve build attachments and bind the owned geometry array after AS objects exist.

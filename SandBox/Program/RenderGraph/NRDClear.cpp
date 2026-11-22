@@ -2,26 +2,22 @@
 #include <Log/ILogSystem.h>
 #include <Service/Service.h>
 
-#include <RHI/Command/CommandList.h>
-#include <RHI/Command/CommandQueue.h>
-#include <RHI/Command/CommandRecorder.h>
-#include <RHI/Command/CopyItem.h>
-#include <RHI/Context/UniqueRHIHandle.h>
 #include <RHI/Device/Device.h>
 #include <RHI/Factory.h>
 #include <RHI/Fence/Fence.h>
 #include <RHI/Pipeline/ShaderStageFunction.h>
 #include <RHI/Resource/Buffer/BufferPool.h>
-#include <RHI/Resource/Image/Image.h>
-#include <RHI/Resource/ResourceState.h>
-#include <RHI/ResourceBuilder.h>
+#include <RHI/Resource/Image/ImageDescriptor.h>
+#include <RHI/Resource/Image/ImageSubResource.h>
+#include <RHI/Resource/Image/ImageViewDescriptor.h>
 
 #include <Pass/ComputePass.h>
+#include <Pass/CopyPass.h>
+#include <Pass/RenderPass.h>
 
 #include "../Common/RenderGraphUtil.h"
 
 #include <EASTL/array.h>
-#include <EASTL/optional.h>
 #include <EASTL/string_view.h>
 #include <EASTL/vector.h>
 #include <NRD.h>
@@ -37,8 +33,8 @@ namespace
     constexpr uint16_t kClearHeight = 11;
     constexpr uint16_t kHalfOne = 0x3c00;
     constexpr RHI::Format kFormat = RHI::Format::R16G16B16A16_FLOAT;
-    constexpr auto kImageFlags = RHI::ImageBindFlags::ShaderWrite
-        | RHI::ImageBindFlags::CopyRead | RHI::ImageBindFlags::CopyWrite;
+    constexpr auto kImageFlags = RHI::ImageBindFlags::Color
+        | RHI::ImageBindFlags::ShaderWrite | RHI::ImageBindFlags::CopyRead;
     constexpr auto kQueue = RHI::HardwareQueueClass::Graphics;
 
     struct ClearField
@@ -56,6 +52,25 @@ namespace
     };
     const RHI::InputName kOutputInput{"gOut"};
     const RHI::AttachmentId kOutput{"NRDClearOutput"};
+    const RHI::AttachmentId kReadback{"NRDClearReadback"};
+
+    void RegisterInitializePass(Render::PassContext& passes, const RHI::ImageDescriptor& outputDesc)
+    {
+        SPARK_RENDER_PASS(passes, "NRDClearInitialize")
+            .Queue(kQueue)
+            .Build([outputDesc](Render::RenderPassScopes& pass)
+            {
+                pass.CreateImage(kOutput, outputDesc);
+                const RHI::AttachmentLoadStoreAction initialize(
+                    RHI::ClearValue::CreateVector4Float(1.0f, 1.0f, 1.0f, 1.0f), RHI::AttachmentLoadAction::Clear);
+                auto scope = pass.Scope();
+                scope.RenderTarget(kOutput, initialize);
+                scope.Close();
+            })
+            // The attachment load action performs all the work of this pass.
+            .Execute([](Render::ExecuteWork&, Render::RenderGraphExecuter&) {})
+            .Finalize();
+    }
 
     const nrd::DispatchDesc* FindOutputClear(
         const nrd::InstanceDesc& instance, const nrd::DispatchDesc* dispatches, uint32_t count)
@@ -76,15 +91,14 @@ namespace
         return nullptr;
     }
 
-    bool RegisterClearPass(Render::PassContext& passes, RHI::Factory& factory, RHI::Device& device,
-        RHI::RHIHandle output)
+    void RegisterClearPass(Render::PassContext& passes, RHI::Factory& factory, RHI::Device& device)
     {
         const auto& library = *nrd::GetLibraryDesc();
         if (library.versionMajor != 4 || library.versionMinor != 18)
         {
             LOG_ERROR("[NRDClear] Expected NRD 4.18, got {}.{}.",
                 static_cast<unsigned>(library.versionMajor), static_cast<unsigned>(library.versionMinor));
-            return false;
+            return;
         }
 
         const nrd::DenoiserDesc denoiser{1, nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR};
@@ -96,7 +110,7 @@ namespace
         if (result != nrd::Result::SUCCESS)
         {
             LOG_ERROR("[NRDClear] CreateInstance failed ({}).", static_cast<unsigned>(result));
-            return false;
+            return;
         }
         auto destroyInstance = [](nrd::Instance* value) { nrd::DestroyInstance(*value); };
         UniquePtr<nrd::Instance, decltype(destroyInstance)> owner(instance, destroyInstance);
@@ -125,7 +139,7 @@ namespace
         if (result != nrd::Result::SUCCESS)
         {
             LOG_ERROR("[NRDClear] SetCommonSettings failed ({}).", static_cast<unsigned>(result));
-            return false;
+            return;
         }
 
         const nrd::DispatchDesc* dispatches = nullptr;
@@ -134,7 +148,7 @@ namespace
         if (result != nrd::Result::SUCCESS)
         {
             LOG_ERROR("[NRDClear] GetComputeDispatches failed ({}).", static_cast<unsigned>(result));
-            return false;
+            return;
         }
 
         const auto& instanceDesc = *nrd::GetInstanceDesc(*instance);
@@ -143,14 +157,14 @@ namespace
             || clear->gridWidth == 0 || clear->gridHeight == 0)
         {
             LOG_ERROR("[NRDClear] No valid floating-point Clear dispatch for OUT_DIFF_RADIANCE_HITDIST.");
-            return false;
+            return;
         }
 
         const auto& shader = instanceDesc.pipelines[clear->pipelineIndex].computeShaderDXIL;
         if (!shader.bytecode || shader.size == 0)
         {
             LOG_ERROR("[NRDClear] No DXIL in the SDK's Clear pipeline.");
-            return false;
+            return;
         }
 
         RHI::ShaderInputList inputs;
@@ -169,7 +183,7 @@ namespace
         if (layout->Finalize() != RHI::ResultCode::Success)
         {
             LOG_ERROR("[NRDClear] Clear layout finalization failed.");
-            return false;
+            return;
         }
 
         auto compute = factory.CreateShaderStageFunction(RHI::ShaderStage::Compute);
@@ -178,7 +192,7 @@ namespace
         if (compute->Finalize() != RHI::ResultCode::Success)
         {
             LOG_ERROR("[NRDClear] Clear DXIL finalization failed.");
-            return false;
+            return;
         }
 
         RHI::PipelineStateDescriptorForDispatch descriptor;
@@ -188,7 +202,7 @@ namespace
         if (pso->Init(device, descriptor) != RHI::ResultCode::Success)
         {
             LOG_ERROR("[NRDClear] Clear PSO initialization failed.");
-            return false;
+            return;
         }
 
         eastl::array<uint8_t, kClearConstantBytes> constants;
@@ -198,17 +212,11 @@ namespace
         LOG_INFO("[NRDClear] Dispatching {} with {}x{} groups.",
             instanceDesc.pipelines[clear->pipelineIndex].shaderIdentifier, clear->gridWidth, clear->gridHeight);
 
-        return SPARK_COMPUTE_PASS(passes, "NRDClear")
+        SPARK_COMPUTE_PASS(passes, "NRDClear")
             .Queue(kQueue)
             .ImportPipeline(pso, Render::PassPipelineLayout{layout, {}})
-            .Build([output, outputBinding, groups, constants](Render::ComputePassScopes& pass)
+            .Build([outputBinding, groups, constants](Render::ComputePassScopes& pass)
             {
-                auto& context = *RHI::RHIExecuteContext::Current();
-                if (!RHI::IsResourceReady(context, output) || context.Has<Render::PendingSync>(output))
-                {
-                    return;
-                }
-                pass.Import(kOutput, output);
                 auto scope = pass.Scope();
                 scope.WriteImage(kOutput).Bind(outputBinding);
                 for (const auto& field : kClearFields)
@@ -219,7 +227,7 @@ namespace
                 scope.Dispatch(groups);
                 scope.Close();
             })
-            .Finalize() != Render::NullPass;
+            .Finalize();
     }
 
     bool CheckPixels(const void* data, uint32_t rowPitch)
@@ -246,129 +254,112 @@ namespace
         return true;
     }
 
-    bool ReadbackAndVerify(RHI::Factory& factory, RHI::Image& image, const Render::PendingSync& clearDone)
-    {
-        auto& device = image.GetDevice();
-        RHI::ImageSubresourceLayout footprint;
-        image.GetSubresourceLayouts(RHI::ImageSubresourceRange(0, 0, 0, 0), &footprint, nullptr);
-        const auto byteCount = footprint.m_bytesPerImage;
-
-        RHI::BufferPoolDescriptor poolDescriptor;
-        poolDescriptor.m_heapMemoryLevel = RHI::HeapMemoryLevel::Host;
-        poolDescriptor.m_hostMemoryAccess = RHI::HostMemoryAccess::Read;
-        poolDescriptor.m_bindFlags = RHI::BufferBindFlags::CopyWrite;
-        auto readbackPool = factory.CreateBufferPool();
-        if (readbackPool->Init(device, poolDescriptor) != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("[NRDClear] Readback buffer pool initialization failed.");
-            return false;
-        }
-        auto readback = factory.CreateBuffer();
-        if (readbackPool->InitBuffer(RHI::BufferInitRequest(*readback,
-                RHI::BufferDescriptor(RHI::BufferBindFlags::CopyWrite, byteCount))) != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("[NRDClear] Readback buffer initialization failed.");
-            return false;
-        }
-
-        // CopyScope currently handles buffer copies. The readback waits on the
-        // renderer's submission fence before copying the image on a graphics queue.
-        auto queue = factory.CreateCommandQueue();
-        auto recorder = factory.CreateCommandRecorder();
-        auto fence = factory.CreateFence();
-        if (queue->Init(device, RHI::CommandQueueDescriptor{kQueue}) != RHI::ResultCode::Success
-            || recorder->Init(device, RHI::CommandRecorderDescriptor{kQueue}) != RHI::ResultCode::Success
-            || fence->Init(device, RHI::FenceState::Reset) != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("[NRDClear] Readback queue, recorder or fence initialization failed.");
-            return false;
-        }
-
-        auto& commands = *recorder->GetCommandList();
-        commands.QueueBarrier(RHI::ConvertToImageCopyRead(image));
-        commands.FlushBarriers();
-        RHI::CopyImageToBufferDescriptor copy;
-        copy.m_sourceImage = &image;
-        copy.m_sourceSize = footprint.m_size;
-        copy.m_destinationBuffer = readback.get();
-        copy.m_destinationBytesPerRow = footprint.m_bytesPerRow;
-        copy.m_destinationBytesPerImage = byteCount;
-        copy.m_destinationFormat = kFormat;
-        commands.Submit(RHI::CopyItem(copy));
-        commands.Close();
-
-        RHI::CommandList* lists[] = {&commands};
-        if (queue->Wait(*clearDone.m_fence, clearDone.m_fenceValue) != RHI::ResultCode::Success
-            || queue->ExecuteCommands(lists) != RHI::ResultCode::Success
-            || queue->FlushCommands(*fence) != RHI::ResultCode::Success)
-        {
-            LOG_ERROR("[NRDClear] Readback copy failed.");
-            return false;
-        }
-
-        RHI::BufferMapResponse mapped;
-        if (readbackPool->MapBuffer(RHI::BufferMapRequest(*readback, 0, byteCount), mapped)
-                != RHI::ResultCode::Success || !mapped.m_data)
-        {
-            LOG_ERROR("[NRDClear] Could not map the readback buffer.");
-            return false;
-        }
-        const bool passed = CheckPixels(mapped.m_data, footprint.m_bytesPerRow);
-        readbackPool->UnmapBuffer(*readback);
-        return passed;
-    }
-
-    class NRDClearFeature
+    class ReadbackBuffer
     {
     public:
-        bool Init(Render::PassContext& passes)
+        ReadbackBuffer(RHI::RHIContext& context, const RHI::ImageSubresourceLayout& layout)
+            : m_context(context), m_layout(layout)
         {
-            auto& context = *RHI::RHIExecuteContext::Current();
-            auto& rhi = *Service<RHI::RHIInterface>::Get();
-            auto descriptor = RHI::ImageDescriptor::Create2D(kImageFlags, kTextureSize, kTextureSize, kFormat);
-            descriptor.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
-            m_output = RHI::UniqueRHIHandle(RHI::CreateImage(context, kOutput, descriptor));
-            if (!RegisterClearPass(passes, *rhi.GetRHIFactory(), *rhi.GetDevice(), m_output.Get()))
-            {
-                return false;
-            }
-
-            // The upload can run over several ticks. Keep its source alive through shutdown.
-            static const auto initialPixels = []
-            {
-                eastl::array<uint16_t, kTextureSize * kTextureSize * 4> pixels;
-                pixels.fill(kHalfOne);
-                return pixels;
-            }();
-            RHI::RequestImageUpload(context, m_output.Get(), initialPixels.data(),
-                initialPixels.size() * sizeof(uint16_t), RHI::ImageSubresourceRange(descriptor), {}, kFormat);
-            return true;
         }
 
-        eastl::optional<bool> VerifyIfSubmitted() const
+        ReadbackBuffer(const ReadbackBuffer&) = delete;
+        ReadbackBuffer& operator=(const ReadbackBuffer&) = delete;
+
+        ~ReadbackBuffer()
         {
-            auto& context = *RHI::RHIExecuteContext::Current();
-            const auto output = m_output.Get();
-            if (!context.Valid(output) || context.Has<DeadTag>(output))
+            if (m_resource != RHI::NullHandle)
             {
-                LOG_ERROR("[NRDClear] Output image initialization failed.");
+                m_context.DestoryEntity(m_resource);
+            }
+        }
+
+        void Init(RHI::Factory& factory, RHI::Device& device)
+        {
+            RHI::BufferPoolDescriptor poolDesc;
+            poolDesc.m_heapMemoryLevel = RHI::HeapMemoryLevel::Host;
+            poolDesc.m_hostMemoryAccess = RHI::HostMemoryAccess::Read;
+            poolDesc.m_bindFlags = RHI::BufferBindFlags::CopyWrite;
+            poolDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
+            m_pool = factory.CreateBufferPool();
+            if (m_pool->Init(device, poolDesc) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[NRDClear] Readback buffer pool initialization failed.");
+                return;
+            }
+
+            auto buffer = factory.CreateBuffer();
+            RHI::BufferDescriptor bufferDesc(RHI::BufferBindFlags::CopyWrite, m_layout.m_bytesPerImage);
+            bufferDesc.m_sharedQueueMask = poolDesc.m_sharedQueueMask;
+            if (m_pool->InitBuffer(RHI::BufferInitRequest(*buffer, bufferDesc)) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[NRDClear] Readback buffer initialization failed.");
+                return;
+            }
+
+            m_resource = m_context.CreateEntity();
+            m_context.Add<RHI::ResourceName>(m_resource, RHI::ResourceName{ kReadback });
+            m_context.Add<RHI::Components::Buffer>(m_resource, RHI::Components::Buffer{ eastl::move(buffer) });
+        }
+
+        void RegisterPass(Render::PassContext& passes) const
+        {
+            if (m_resource == RHI::NullHandle)
+            {
+                return;
+            }
+
+            SPARK_COPY_PASS(passes, "NRDClearReadback")
+                .Queue(kQueue)
+                .Build([resource = m_resource](Render::CopyPassScopes& pass)
+                {
+                    pass.Import(kReadback, resource);
+                    auto scope = pass.Scope();
+                    auto view = RHI::ImageViewDescriptor::Create(RHI::Format::Unknown, 0, 0, 0, 0);
+                    view.m_aspectFlags = RHI::ImageAspectFlags::Color;
+                    auto source = scope.CopyImageSource(kOutput);
+                    source.View(view);
+                    const auto destination = scope.CopyDestination(kReadback);
+                    scope.CopyImageToBuffer(source, destination);
+                    scope.Close();
+                })
+                .Finalize();
+        }
+
+        bool Verify() const
+        {
+            if (m_resource == RHI::NullHandle)
+            {
                 return false;
             }
 
-            // The renderer stamps PendingSync after a frame that uses this image.
-            const auto* submitted = context.TryGet<Render::PendingSync>(output);
-            if (!submitted)
+            // This test runs a single frame. Its readback is covered by the graph's queue fence.
+            const auto* submitted = m_context.TryGet<Render::PendingSync>(m_resource);
+            if (!submitted || !submitted->m_fence
+                || submitted->m_fence->WaitOnCpu() != RHI::ResultCode::Success
+                || submitted->m_fence->GetCompletedValue() < submitted->m_fenceValue)
             {
-                return eastl::nullopt;
+                LOG_ERROR("[NRDClear] The graph did not complete the readback copy.");
+                return false;
             }
 
-            auto* factory = Service<RHI::Factory>::Get();
-            auto& image = *context.Get<RHI::Components::Image>(output).m_image;
-            return ReadbackAndVerify(*factory, image, *submitted);
+            auto& buffer = *m_context.Get<RHI::Components::Buffer>(m_resource).m_buffer;
+            RHI::BufferMapResponse mapped;
+            if (m_pool->MapBuffer(RHI::BufferMapRequest(buffer, 0, m_layout.m_bytesPerImage), mapped)
+                    != RHI::ResultCode::Success || !mapped.m_data)
+            {
+                LOG_ERROR("[NRDClear] Could not map the readback buffer.");
+                return false;
+            }
+            const bool passed = CheckPixels(mapped.m_data, m_layout.m_bytesPerRow);
+            m_pool->UnmapBuffer(buffer);
+            return passed;
         }
 
     private:
-        RHI::UniqueRHIHandle m_output;
+        RHI::RHIContext& m_context;
+        RHI::ImageSubresourceLayout m_layout;
+        Ptr<RHI::BufferPool> m_pool;
+        RHI::RHIHandle m_resource = RHI::NullHandle;
     };
 }
 
@@ -378,19 +369,24 @@ int main()
     auto& passes = *Render::PassExecuteContext::Current();
     sys.m_render->SetUpSystemPasses(passes);
 
-    NRDClearFeature feature;
-    if (!feature.Init(passes))
+    auto& rhi = *Service<RHI::RHIInterface>::Get();
+    auto& factory = *rhi.GetRHIFactory();
+    auto& device = *rhi.GetDevice();
+    auto outputDesc = RHI::ImageDescriptor::Create2D(kImageFlags, kTextureSize, kTextureSize, kFormat);
+    outputDesc.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
+    const auto layout = RHI::GetRowAlignedImageSubresourceLayout(outputDesc, {}, device.GetLimits());
+    ReadbackBuffer readback(*RHI::RHIExecuteContext::Current(), layout);
+
+    readback.Init(factory, device);
+    RegisterInitializePass(passes, outputDesc);
+    RegisterClearPass(passes, factory, device);
+    readback.RegisterPass(passes);
+
+    if (sys.m_window->ShouldClose())
     {
         return 1;
     }
 
-    while (!sys.m_window->ShouldClose())
-    {
-        TickBus::Broadcast(&TickBus::Events::OnTick, FrameTime{});
-        if (const auto passed = feature.VerifyIfSubmitted())
-        {
-            return *passed ? 0 : 1;
-        }
-    }
-    return 1;
+    TickBus::Broadcast(&TickBus::Events::OnTick, FrameTime{});
+    return readback.Verify() ? 0 : 1;
 }

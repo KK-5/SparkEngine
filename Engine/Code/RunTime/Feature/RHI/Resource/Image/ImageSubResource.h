@@ -108,6 +108,10 @@ namespace Spark::RHI
     ImageSubresourceLayout GetImageSubresourceLayout(Size imageSize, Format imageFormat);
     ImageSubresourceLayout GetImageSubresourceLayout(const ImageDescriptor& imageDescriptor, const ImageSubresource& subresource);
 
+    //! Linear layout of one subresource, with the device's row pitch alignment.
+    ImageSubresourceLayout GetRowAlignedImageSubresourceLayout(
+        const ImageDescriptor& imageDescriptor, const ImageSubresource& subresource, const DeviceLimits& limits);
+
     uint32_t GetImageSubresourceIndex(uint32_t mipSlice, uint32_t arraySlice, uint32_t mipLevels);
     uint32_t GetImageSubresourceIndex(ImageSubresource subresource, uint32_t mipLevels);
 

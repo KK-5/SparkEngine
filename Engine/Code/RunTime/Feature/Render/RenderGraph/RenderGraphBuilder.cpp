@@ -777,6 +777,26 @@ namespace Spark::Render
         rhiContext.Add<ItemCopy>(item, ItemCopy{ source, destination });
     }
 
+    void RenderGraphBuilder::AddScopeImageToBufferCopy(RHIHandle scope, RHIHandle source, RHIHandle destination)
+    {
+        auto& context = *RHIExecuteContext::Current();
+        const auto* image = context.TryGet<ImagePassAttachment>(source);
+        const auto* buffer = context.TryGet<BufferPassAttachment>(destination);
+        const bool valid = image && image->m_usage == RHI::AttachmentUsage::Copy
+            && image->m_access == RHI::AttachmentAccess::Read && context.Get<ScopeAttachment>(source).m_scope == scope
+            && buffer && buffer->m_usage == RHI::AttachmentUsage::Copy
+            && buffer->m_access == RHI::AttachmentAccess::Write && context.Get<ScopeAttachment>(destination).m_scope == scope;
+        ASSERT(valid, "An image-to-buffer copy needs a CopyImageSource and a CopyDestination of the same Scope.");
+        if (!valid)
+        {
+            return;
+        }
+
+        const RHIHandle item = AddScopeItem(scope);
+        context.Add<RHI::CopyItem>(item, RHI::CopyItem(RHI::CopyImageToBufferDescriptor{}));
+        context.Add<ItemCopy>(item, ItemCopy{ source, destination });
+    }
+
     ItemAccelerationStructureBuild RenderGraphBuilder::MakeAccelerationStructureBuild(RHIHandle scope,
         RHIHandle destination, RHIHandle scratch) const
     {

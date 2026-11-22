@@ -455,6 +455,10 @@ namespace Spark::Render
         //! The buffer a copy of this Scope writes. Created with BufferBindFlags::CopyWrite.
         Attachment CopyDestination(const RHI::AttachmentId& name);
 
+        //! A single-sampled image created with ImageBindFlags::CopyRead. Select one color
+        //! subresource with .View(...).
+        Attachment CopyImageSource(const RHI::AttachmentId& name);
+
         //! Copy `byteCount` bytes from `sourceOffset` into `source` to `destinationOffset` into
         //! `destination`, a CopySource and a CopyDestination of this Scope.
         void CopyBuffer(const Attachment& source, uint64_t sourceOffset,
@@ -462,6 +466,13 @@ namespace Spark::Render
         {
             m_builder->AddScopeCopy(m_scope, source.GetHandle(), sourceOffset,
                 destination.GetHandle(), destinationOffset, byteCount);
+        }
+
+        //! Copy the whole subresource of a CopyImageSource into a CopyDestination at offset zero.
+        //! The destination must hold its device-aligned copy layout.
+        void CopyImageToBuffer(const Attachment& source, const Attachment& destination)
+        {
+            m_builder->AddScopeImageToBufferCopy(m_scope, source.GetHandle(), destination.GetHandle());
         }
 
     private:

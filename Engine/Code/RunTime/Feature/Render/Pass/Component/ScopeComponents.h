@@ -105,8 +105,8 @@ namespace Spark::Render
         RHI::RHIHandle m_countAttachment {RHI::NullHandle};
     };
 
-    //! On a copy of a Scope: its CopySource and CopyDestination accesses. The buffers have no
-    //! backing when the copy is declared, so lowering puts them into the item (CompileItemCopies).
+    //! On a copy of a Scope: its source and destination accesses. Lowering resolves their
+    //! backings into the item (CompileItemCopies).
     struct ItemCopy
     {
         RHI::RHIHandle m_sourceAttachment {RHI::NullHandle};

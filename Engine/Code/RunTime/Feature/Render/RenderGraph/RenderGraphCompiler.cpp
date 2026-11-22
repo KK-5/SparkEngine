@@ -1437,9 +1437,44 @@ namespace Spark::Render
 
         for (auto [item, copy] : context.GetStorage<ItemCopy>().each())
         {
-            RHI::CopyBufferDescriptor& descriptor = context.Get<RHI::CopyItem>(item).m_buffer;
-            descriptor.m_sourceBuffer      = backingOf(copy.m_sourceAttachment, RHI::BufferBindFlags::CopyRead, "CopyRead");
-            descriptor.m_destinationBuffer = backingOf(copy.m_destinationAttachment, RHI::BufferBindFlags::CopyWrite, "CopyWrite");
+            auto& command = context.Get<RHI::CopyItem>(item);
+            const RHI::Buffer* destination =
+                backingOf(copy.m_destinationAttachment, RHI::BufferBindFlags::CopyWrite, "CopyWrite");
+            if (command.m_type == RHI::CopyItemType::Buffer)
+            {
+                command.m_buffer.m_sourceBuffer = backingOf(copy.m_sourceAttachment, RHI::BufferBindFlags::CopyRead, "CopyRead");
+                command.m_buffer.m_destinationBuffer = destination;
+                continue;
+            }
+
+            ASSERT(command.m_type == RHI::CopyItemType::ImageToBuffer, "Invalid graph copy item type.");
+            const auto& source = context.Get<ImagePassAttachment>(copy.m_sourceAttachment);
+            const auto* backing = context.TryGet<BackingImage>(source.m_image);
+            ASSERT(backing && backing->m_image, "Copied image {} has no backing.", source.m_attachmentId.m_id.GetCStr());
+            const auto& image = *backing->m_image;
+            const auto& imageDesc = image.GetDescriptor();
+            const auto& view = source.m_viewDescriptor;
+            ASSERT(CheckBitsAll(imageDesc.m_bindFlags, RHI::ImageBindFlags::CopyRead),
+                "Copied image {} needs ImageBindFlags::CopyRead.", source.m_attachmentId.m_id.GetCStr());
+            ASSERT(imageDesc.m_multisampleState.m_samples == 1 && image.GetAspectFlags() == RHI::ImageAspectFlags::Color,
+                "Image-to-buffer copy requires a single-sampled color image.");
+            ASSERT(view.m_mipSliceMin == view.m_mipSliceMax && view.m_mipSliceMin < imageDesc.m_mipLevels
+                && view.m_arraySliceMin == view.m_arraySliceMax && view.m_arraySliceMin < imageDesc.m_arraySize
+                && view.m_aspectFlags == RHI::ImageAspectFlags::Color,
+                "Image-to-buffer copy requires exactly one color subresource.");
+
+            auto& descriptor = command.m_imageToBuffer;
+            descriptor.m_sourceSubresource = RHI::ImageSubresource(view.m_mipSliceMin, view.m_arraySliceMin);
+            const auto layout = RHI::GetRowAlignedImageSubresourceLayout(imageDesc, descriptor.m_sourceSubresource,
+                image.GetDevice().GetLimits());
+            ASSERT(destination->GetDescriptor().m_byteCount >= uint64_t(layout.m_bytesPerImage) * layout.m_size.m_depth,
+                "The image-to-buffer copy destination is smaller than the aligned subresource layout.");
+            descriptor.m_sourceImage = &image;
+            descriptor.m_sourceSize = layout.m_size;
+            descriptor.m_destinationBuffer = destination;
+            descriptor.m_destinationBytesPerRow = layout.m_bytesPerRow;
+            descriptor.m_destinationBytesPerImage = layout.m_bytesPerImage;
+            descriptor.m_destinationFormat = imageDesc.m_format;
         }
     }
 

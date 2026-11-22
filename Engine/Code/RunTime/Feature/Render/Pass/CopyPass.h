@@ -7,8 +7,7 @@ namespace Spark::Render
     // ================================================================
     // CopyPassBuilder<PassTag>
     // ================================================================
-    //! A pass of copies only: no shader, no bindings, its Scopes copy between the buffers they
-    //! access.
+    //! A pass of copies only: no shader, no bindings, its Scopes copy the resources they access.
     template<typename PassTag>
     class CopyPassBuilder
     {

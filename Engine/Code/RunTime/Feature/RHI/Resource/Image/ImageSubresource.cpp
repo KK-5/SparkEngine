@@ -316,6 +316,15 @@ namespace Spark::RHI
         return GetImageSubresourceLayout(imageDescriptor.m_size.GetReducedMip(subresource.m_mipSlice), imageDescriptor.m_format);
     }
 
+    ImageSubresourceLayout GetRowAlignedImageSubresourceLayout(
+        const ImageDescriptor& imageDescriptor, const ImageSubresource& subresource, const DeviceLimits& limits)
+    {
+        ImageSubresourceLayout layout = GetImageSubresourceLayout(imageDescriptor, subresource);
+        layout.m_bytesPerRow = AlignUp(layout.m_bytesPerRow, limits.m_imageCopyRowPitchAlignment);
+        layout.m_bytesPerImage = layout.m_rowCount * layout.m_bytesPerRow;
+        return layout;
+    }
+
     uint32_t GetImageSubresourceIndex(uint32_t mipSlice, uint32_t arraySlice, uint32_t mipLevels)
     {
         return mipSlice + arraySlice * mipLevels;
