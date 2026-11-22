@@ -2,6 +2,7 @@
 
 #if SPARK_WITH_NRD
 #include "NRDInputPass.h"
+#include "NRDReblurConstants.h"
 
 #include <math.h>
 
@@ -15,12 +16,12 @@
 
 #include <Binding/View/ViewBinding.h>
 #include <CoreComponents/Tags.h>
+#include <Feature/SceneTextures/SceneTextures.h>
 #include <Log/ILogSystem.h>
 #include <Math/MathUtils.h>
 #include <Pass/ComputePass.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Factory.h>
-#include <RHI/Fence/Fence.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Pipeline/PipelineState.h>
 #include <RHI/Pipeline/PipelineStateDescriptor.h>
@@ -48,7 +49,25 @@ namespace Spark::Render
 
         const RHI::InputName kClearOutput("gOut");
         constexpr uint32_t kClearFieldBytes = 2 * sizeof(int32_t);
-        constexpr uint32_t kClearConstantBytes = 2 * kClearFieldBytes;
+        const RHI::InputName kTextures("NRDTextures");
+        const RHI::InputName kStorageTextures("NRDStorageTextures");
+
+        enum class ReblurStage : uint8_t
+        {
+            ClassifyTiles, PrePass, TemporalAccumulation, HistoryFix, Blur, PostBlur, TemporalStabilization, Count
+        };
+
+        constexpr size_t StageIndex(ReblurStage stage) { return static_cast<size_t>(stage); }
+        constexpr size_t kReblurStageCount = StageIndex(ReblurStage::Count);
+        const eastl::array<eastl::string_view, kReblurStageCount> kReblurShaders{
+            "REBLUR_ClassifyTiles.cs.hlsl",
+            "REBLUR_PrePass.cs.hlsl",
+            "REBLUR_TemporalAccumulation.cs.hlsl",
+            "REBLUR_HistoryFix.cs.hlsl",
+            "REBLUR_Blur.cs.hlsl",
+            "REBLUR_PostBlur.cs.hlsl",
+            "REBLUR_TemporalStabilization.cs.hlsl",
+        };
 
         struct ClearField
         {
@@ -112,22 +131,23 @@ namespace Spark::Render
             RHI::ShaderInputList inputs;
             if (maxSrvs != 0)
             {
-                inputs.m_images.emplace_back(RHI::InputName("NRDTextures"), RHI::ShaderInputImageAccess::Read,
+                inputs.m_images.emplace_back(kTextures, RHI::ShaderInputImageAccess::Read,
                     RHI::ShaderInputImageType::Image2D, maxSrvs, instance.resourcesBaseRegisterIndex,
                     instance.resourcesSpaceIndex).m_stageMask = RHI::ShaderStageMask::Compute;
             }
             if (maxUavs != 0)
             {
-                inputs.m_images.emplace_back(RHI::InputName("NRDStorageTextures"), RHI::ShaderInputImageAccess::ReadWrite,
+                inputs.m_images.emplace_back(kStorageTextures, RHI::ShaderInputImageAccess::ReadWrite,
                     RHI::ShaderInputImageType::Image2D, maxUavs, instance.resourcesBaseRegisterIndex,
                     instance.resourcesSpaceIndex).m_stageMask = RHI::ShaderStageMask::Compute;
             }
-            if (instance.constantBufferMaxDataSize != 0)
+            uint32_t offset = 0;
+            for (const auto& field : NRDReblur::kSharedFields)
             {
-                // Reserve the CBV for PSO creation. Scope uploads will use the individual SDK fields.
-                inputs.m_constants.emplace_back(RHI::InputName("NRDConstants"), 0, instance.constantBufferMaxDataSize,
+                inputs.m_constants.emplace_back(RHI::InputName(field.m_name), offset, field.m_byteCount,
                     instance.constantBufferRegisterIndex, instance.constantBufferAndSamplersSpaceIndex)
                     .m_stageMask = RHI::ShaderStageMask::Compute;
+                offset += field.m_byteCount;
             }
 
             auto layout = factory.CreatePipelineLayoutDescriptor();
@@ -247,32 +267,6 @@ namespace Spark::Render
             return true;
         }
 
-        bool HasValidResources(const nrd::InstanceDesc& instance, const nrd::DispatchDesc& dispatch)
-        {
-            const auto& pipeline = instance.pipelines[dispatch.pipelineIndex];
-            uint32_t offset = 0;
-            for (uint32_t i = 0; i < pipeline.resourceRangesNum; ++i)
-            {
-                const auto& range = pipeline.resourceRanges[i];
-                if (range.descriptorsNum > dispatch.resourcesNum - offset
-                    || (range.descriptorsNum != 0 && !dispatch.resources))
-                {
-                    return false;
-                }
-                for (uint32_t j = 0; j < range.descriptorsNum; ++j)
-                {
-                    const auto& resource = dispatch.resources[offset++];
-                    if (resource.descriptorType != range.descriptorType || resource.type >= nrd::ResourceType::MAX_NUM
-                        || (resource.type == nrd::ResourceType::PERMANENT_POOL && resource.indexInPool >= instance.permanentPoolSize)
-                        || (resource.type == nrd::ResourceType::TRANSIENT_POOL && resource.indexInPool >= instance.transientPoolSize))
-                    {
-                        return false;
-                    }
-                }
-            }
-            return offset == dispatch.resourcesNum;
-        }
-
         RHI::Format GetTextureFormat(nrd::Format format)
         {
             switch (format)
@@ -343,17 +337,12 @@ namespace Spark::Render
             return true;
         }
 
-        struct ClearDispatch
-        {
-            const GraphTexture* m_target;
-            RHI::DispatchGroupCount m_groups;
-            eastl::array<uint8_t, kClearConstantBytes> m_constants;
-        };
-
-        struct StartupClears
+        struct FrameTextures
         {
             bool DescribeTextures(const nrd::InstanceDesc& instance, uint32_t width, uint32_t height)
             {
+                m_width = width;
+                m_height = height;
                 const auto fullSize = CreateTextureDescriptor(width, height, RHI::Format::R16G16B16A16_FLOAT);
                 m_diffuseOutput = { RHI::AttachmentId("NRDDiffuseOutput"), fullSize };
                 m_specularOutput = { RHI::AttachmentId("NRDSpecularOutput"), fullSize };
@@ -399,53 +388,43 @@ namespace Spark::Render
                 }
             }
 
-            const GraphTexture* FindTexture(const nrd::ResourceDesc& resource) const
+            void Declare(ComputePassScopes& pass) const
+            {
+                for (const auto& texture : m_permanent)
+                {
+                    pass.Import(texture.m_name, texture.m_resource);
+                }
+                for (const auto& texture : m_transient)
+                {
+                    pass.CreateImage(texture.m_name, texture.m_descriptor);
+                }
+                pass.CreateImage(m_diffuseOutput.m_name, m_diffuseOutput.m_descriptor);
+                pass.CreateImage(m_specularOutput.m_name, m_specularOutput.m_descriptor);
+            }
+
+            const RHI::AttachmentId* FindAttachment(const nrd::ResourceDesc& resource) const
             {
                 switch (resource.type)
                 {
-                case nrd::ResourceType::PERMANENT_POOL: return &m_permanent[resource.indexInPool];
-                case nrd::ResourceType::TRANSIENT_POOL: return &m_transient[resource.indexInPool];
-                case nrd::ResourceType::IN_MV: return &m_motion;
-                case nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST: return &m_diffuseOutput;
-                case nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST: return &m_specularOutput;
+                case nrd::ResourceType::PERMANENT_POOL: return &m_permanent[resource.indexInPool].m_name;
+                case nrd::ResourceType::TRANSIENT_POOL: return &m_transient[resource.indexInPool].m_name;
+                case nrd::ResourceType::IN_MV: return &NRDInputs::Motion;
+                case nrd::ResourceType::IN_NORMAL_ROUGHNESS: return &NRDInputs::NormalRoughness;
+                case nrd::ResourceType::IN_VIEWZ: return &SceneTextures::DirectLighting::ViewZName();
+                case nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST: return &NRDInputs::Diffuse;
+                case nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST: return &NRDInputs::Specular;
+                case nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST: return &m_diffuseOutput.m_name;
+                case nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST: return &m_specularOutput.m_name;
                 default: return nullptr;
                 }
             }
 
-            bool AddDispatch(ClearType type, const nrd::DispatchDesc& dispatch)
-            {
-                if (dispatch.resourcesNum != 1 || dispatch.resources[0].descriptorType != nrd::DescriptorType::STORAGE_TEXTURE
-                    || dispatch.constantBufferDataSize < kClearConstantBytes)
-                {
-                    return false;
-                }
-                const auto& resource = dispatch.resources[0];
-                const auto* target = FindTexture(resource);
-                if (!target)
-                {
-                    return false;
-                }
-
-                ClearDispatch clear{ target, RHI::DispatchGroupCount{ dispatch.gridWidth, dispatch.gridHeight, 1 }, {} };
-                eastl::copy_n(dispatch.constantBufferData, clear.m_constants.size(), clear.m_constants.begin());
-                m_pendingDispatches[ClearIndex(type)].push_back(clear);
-                ++m_dispatchCount;
-                if (!m_completionTexture && resource.type == nrd::ResourceType::PERMANENT_POOL)
-                {
-                    m_completionTexture = target;
-                }
-                return true;
-            }
-
+            uint32_t m_width = 0;
+            uint32_t m_height = 0;
             eastl::vector<GraphTexture> m_permanent;
             eastl::vector<GraphTexture> m_transient;
-            GraphTexture m_motion{ NRDInputs::Motion, {} };
             GraphTexture m_diffuseOutput;
             GraphTexture m_specularOutput;
-            eastl::array<eastl::vector<ClearDispatch>, kClearTypeCount> m_pendingDispatches;
-            uint32_t m_dispatchCount = 0;
-            const GraphTexture* m_completionTexture = nullptr;
-            bool m_reportedCompletion = false;
         };
     }
 
@@ -462,83 +441,102 @@ namespace Spark::Render
         Ptr<RHI::PipelineLayoutDescriptor> m_clearLayout;
         eastl::vector<Ptr<RHI::PipelineState>> m_pipelines;
         eastl::array<uint32_t, kClearTypeCount> m_clearPipelines{ kInvalidPipeline, kInvalidPipeline };
+        eastl::array<uint32_t, kReblurStageCount> m_reblurPipelines;
         Ptr<RHI::ImagePool> m_permanentPool;
-        UniquePtr<StartupClears> m_startupClears;
-        bool m_startupFrameAttempted = false;
+        UniquePtr<FrameTextures> m_textures;
+        // SDK-owned dispatch data is valid until the next GetComputeDispatches call.
+        eastl::span<const nrd::DispatchDesc> m_dispatches;
+        RHI::RHIHandle m_lastView = RHI::NullHandle;
+        uint64_t m_lastFrameNumber = 0;
 
         void BuildClear(ClearType type, ComputePassScopes& pass);
-        void UpdateStartupClearStatus(const RHI::RHIContext& rhiContext);
+        void BuildReblur(ReblurStage stage, ComputePassScopes& pass);
     };
 
     void NRDSystem::State::BuildClear(ClearType type, ComputePassScopes& pass)
     {
-        if (!m_startupClears)
-        {
-            return;
-        }
-        auto& pending = m_startupClears->m_pendingDispatches[ClearIndex(type)];
-        if (pending.empty())
-        {
-            return;
-        }
-
-        for (const auto& clear : pending)
-        {
-            const auto& texture = *clear.m_target;
-            if (&texture == &m_startupClears->m_motion)
-            {
-                // NRDInputPass declares this attachment after the startup Clear passes.
-                continue;
-            }
-            if (texture.m_resource != RHI::NullHandle)
-            {
-                pass.Import(texture.m_name, texture.m_resource);
-            }
-            else
-            {
-                pass.CreateImage(texture.m_name, texture.m_descriptor);
-            }
-        }
-
         const auto& desc = *nrd::GetInstanceDesc(*m_instance);
         const ShaderInputBinding outputBinding{ desc.resourcesSpaceIndex, kClearOutput };
-        for (const auto& clear : pending)
+        const uint32_t pipeline = m_clearPipelines[ClearIndex(type)];
+        for (const auto& dispatch : m_dispatches)
         {
+            if (dispatch.pipelineIndex != pipeline)
+            {
+                continue;
+            }
             auto scope = pass.Scope();
-            scope.WriteImage(clear.m_target->m_name).Bind(outputBinding);
+            scope.WriteImage(*m_textures->FindAttachment(dispatch.resources[0])).Bind(outputBinding);
             for (const auto& field : kClearFields)
             {
                 scope.Constant(field.m_name,
-                    eastl::span<const uint8_t>(clear.m_constants.data() + field.m_offset, kClearFieldBytes));
+                    eastl::span<const uint8_t>(dispatch.constantBufferData + field.m_offset, kClearFieldBytes));
             }
-            scope.Dispatch(clear.m_groups);
+            scope.Dispatch(RHI::DispatchGroupCount{ dispatch.gridWidth, dispatch.gridHeight, 1 });
             scope.Close();
         }
-        pending.clear();
     }
 
-    void NRDSystem::State::UpdateStartupClearStatus(const RHI::RHIContext& rhiContext)
+    void NRDSystem::State::BuildReblur(ReblurStage stage, ComputePassScopes& pass)
     {
-        auto& startup = *m_startupClears;
-        if (startup.m_reportedCompletion)
+        if (m_dispatches.empty())
         {
             return;
         }
-        for (const auto& pending : startup.m_pendingDispatches)
+        if (stage == ReblurStage::ClassifyTiles)
         {
-            if (!pending.empty())
-            {
-                return;
-            }
+            // Earlier Clear scopes resolve these names when the graph links attachments.
+            m_textures->Declare(pass);
         }
 
-        // Both Clear passes use Graphics. The graph stamps this imported image with that
-        // queue's frame-end fence, which covers both passes and their transient writes.
-        const auto* submitted = rhiContext.TryGet<PendingSync>(startup.m_completionTexture->m_resource);
-        if (submitted && submitted->m_fence && submitted->m_fence->GetCompletedValue() >= submitted->m_fenceValue)
+        const auto& desc = *nrd::GetInstanceDesc(*m_instance);
+        const uint32_t pipeline = m_reblurPipelines[StageIndex(stage)];
+        const auto& constantInputs =
+            m_layout->FindSpaceGroupBySpaceId(desc.constantBufferAndSamplersSpaceIndex)->m_shaderInputs;
+        for (const auto& dispatch : m_dispatches)
         {
-            LOG_INFO("[NRDSystem] Render Graph completed {} startup Clear dispatches.", startup.m_dispatchCount);
-            startup.m_reportedCompletion = true;
+            if (dispatch.pipelineIndex != pipeline)
+            {
+                continue;
+            }
+
+            auto scope = pass.Scope();
+            uint32_t srvIndex = 0;
+            uint32_t uavIndex = 0;
+            for (uint32_t i = 0; i < dispatch.resourcesNum; ++i)
+            {
+                const auto& resource = dispatch.resources[i];
+                const auto& attachment = *m_textures->FindAttachment(resource);
+                if (resource.descriptorType == nrd::DescriptorType::TEXTURE)
+                {
+                    const ShaderInputBinding binding{ desc.resourcesSpaceIndex, kTextures, srvIndex++ };
+                    scope.ReadImage(attachment).Bind(binding);
+                }
+                else
+                {
+                    const ShaderInputBinding binding{ desc.resourcesSpaceIndex, kStorageTextures, uavIndex++ };
+                    if (resource.type == nrd::ResourceType::IN_MV)
+                    {
+                        scope.ReadWriteImage(attachment).Bind(binding);
+                    }
+                    else
+                    {
+                        scope.WriteImage(attachment).Bind(binding);
+                    }
+                }
+            }
+
+            for (const auto& input : constantInputs)
+            {
+                if (input.m_type == RHI::ShaderInputType::Constant)
+                {
+                    const auto& field = m_layout->GetConstantDescriptor(input.m_index);
+                    scope.Constant(field.m_name, eastl::span<const uint8_t>(
+                        dispatch.constantBufferData + field.m_constantByteOffset, field.m_constantByteCount));
+                }
+            }
+
+            scope.Dispatch(RHI::DispatchGroupCount{ dispatch.gridWidth, dispatch.gridHeight, 1 });
+            scope.Close();
         }
     }
 
@@ -550,10 +548,11 @@ namespace Spark::Render
         }
 
         const auto& library = *nrd::GetLibraryDesc();
-        if (library.versionMajor != 4 || library.versionMinor != 18)
+        if (library.versionMajor != 4 || library.versionMinor != 18 || library.versionBuild != 0)
         {
-            LOG_ERROR("[NRDSystem] Expected NRD 4.18, got {}.{}.",
-                static_cast<unsigned>(library.versionMajor), static_cast<unsigned>(library.versionMinor));
+            LOG_ERROR("[NRDSystem] Expected NRD 4.18.0 for the REBLUR constant layout, got {}.{}.{}.",
+                static_cast<unsigned>(library.versionMajor), static_cast<unsigned>(library.versionMinor),
+                static_cast<unsigned>(library.versionBuild));
             return;
         }
 
@@ -598,6 +597,7 @@ namespace Spark::Render
             return;
         }
         state->m_pipelines.reserve(desc.pipelinesNum);
+        state->m_reblurPipelines.fill(kInvalidPipeline);
         for (uint32_t i = 0; i < desc.pipelinesNum; ++i)
         {
             const auto& pipeline = desc.pipelines[i];
@@ -612,6 +612,18 @@ namespace Spark::Render
             {
                 state->m_clearPipelines[ClearIndex(clearType)] = i;
             }
+            else
+            {
+                const eastl::string_view identifier = pipeline.shaderIdentifier;
+                const auto shader = identifier.substr(0, identifier.find('|'));
+                const auto stage = eastl::find(kReblurShaders.begin(), kReblurShaders.end(), shader);
+                if (stage != kReblurShaders.end()
+                    && (shader != kReblurShaders[StageIndex(ReblurStage::PostBlur)]
+                        || identifier.find("|TEMPORAL_STABILIZATION=1") != eastl::string_view::npos))
+                {
+                    state->m_reblurPipelines[stage - kReblurShaders.begin()] = i;
+                }
+            }
             state->m_pipelines.push_back(eastl::move(pso));
         }
         if (eastl::find(state->m_clearPipelines.begin(), state->m_clearPipelines.end(), kInvalidPipeline)
@@ -619,6 +631,14 @@ namespace Spark::Render
         {
             LOG_ERROR("[NRDSystem] The SDK is missing a Clear shader variant.");
             return;
+        }
+        for (size_t stage = 0; stage < kReblurStageCount; ++stage)
+        {
+            if (state->m_reblurPipelines[stage] == kInvalidPipeline)
+            {
+                LOG_ERROR("[NRDSystem] The SDK is missing the pipeline for {}.", kReblurShaders[stage].data());
+                return;
+            }
         }
 
         RHI::ImagePoolDescriptor poolDescriptor;
@@ -661,6 +681,22 @@ namespace Spark::Render
         const auto& hitDistance = m_state->m_reblurSettings.hitDistanceParameters;
         NRDInputPass::SetUp(passes, m_state->m_inputShader, m_state->m_normalRoughnessFormat,
             { hitDistance.A, hitDistance.B, hitDistance.C });
+
+        const auto registerStage = [this](auto builder, ReblurStage stage)
+        {
+            const auto pipeline = m_state->m_reblurPipelines[StageIndex(stage)];
+            builder.Queue(kQueue)
+                .ImportPipeline(m_state->m_pipelines[pipeline], PassPipelineLayout{ m_state->m_layout, {} })
+                .Build([this, stage](ComputePassScopes& pass) { m_state->BuildReblur(stage, pass); })
+                .Finalize();
+        };
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurClassifyTiles"), ReblurStage::ClassifyTiles);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurPrePass"), ReblurStage::PrePass);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurTemporalAccumulation"), ReblurStage::TemporalAccumulation);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurHistoryFix"), ReblurStage::HistoryFix);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurBlur"), ReblurStage::Blur);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurPostBlur"), ReblurStage::PostBlur);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurTemporalStabilization"), ReblurStage::TemporalStabilization);
     }
 
     void NRDSystem::PrepareFrame(RHI::RHIContext& rhiContext, const FrameTime& time)
@@ -669,15 +705,8 @@ namespace Spark::Render
         {
             return;
         }
-        if (m_state->m_startupClears)
-        {
-            m_state->UpdateStartupClearStatus(rhiContext);
-            return;
-        }
-        if (m_state->m_startupFrameAttempted)
-        {
-            return;
-        }
+        auto& state = *m_state;
+        state.m_dispatches = {};
 
         const auto mainViews = rhiContext.GetView<MainViewTag, View, ViewHistory, ViewIndex>(Exclude<DeadTag, ViewInactiveTag>);
         const auto mainView = mainViews.front();
@@ -690,8 +719,17 @@ namespace Spark::Render
         const auto& previous = rhiContext.Get<ViewHistory>(mainView);
         nrd::CommonSettings settings{};
         if (!SetViewSettings(view.m_bufferSize, view.m_rect, view.m_jitter,
-                settings.resourceSize, settings.rectSize, settings.cameraJitter)
-            || !SetViewSettings(previous.m_bufferSize, previous.m_rect, previous.m_jitter,
+                settings.resourceSize, settings.rectSize, settings.cameraJitter))
+        {
+            return;
+        }
+
+        const bool resize = !state.m_textures
+            || state.m_textures->m_width != settings.resourceSize[0] || state.m_textures->m_height != settings.resourceSize[1];
+        const bool restart = resize || state.m_lastView != mainView || !previous.m_valid
+            || time.m_frameNumber - state.m_lastFrameNumber != 1u;
+        if (!SetViewSettings(restart ? view.m_bufferSize : previous.m_bufferSize,
+                restart ? view.m_rect : previous.m_rect, restart ? view.m_jitter : previous.m_jitter,
                 settings.resourceSizePrev, settings.rectSizePrev, settings.cameraJitterPrev))
         {
             return;
@@ -699,14 +737,23 @@ namespace Spark::Render
 
         CopyMatrix(settings.worldToViewMatrix, view.m_worldToView);
         CopyMatrix(settings.viewToClipMatrix, view.m_viewToClip);
-        CopyMatrix(settings.worldToViewMatrixPrev, previous.m_worldToView);
-        CopyMatrix(settings.viewToClipMatrixPrev, previous.m_viewToClip);
+        CopyMatrix(settings.worldToViewMatrixPrev, restart ? view.m_worldToView : previous.m_worldToView);
+        CopyMatrix(settings.viewToClipMatrixPrev, restart ? view.m_viewToClip : previous.m_viewToClip);
         settings.timeDeltaBetweenFrames = time.m_realDeltaTime * 1000.0f;
-        settings.accumulationMode = nrd::AccumulationMode::CLEAR_AND_RESTART;
+        settings.frameIndex = static_cast<uint32_t>(time.m_frameNumber);
+        settings.accumulationMode = restart ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
 
-        // Prepare the startup Clear list once. REBLUR will advance history when connected.
-        m_state->m_startupFrameAttempted = true;
-        auto& instance = *m_state->m_instance;
+        auto& instance = *state.m_instance;
+        const auto& desc = *nrd::GetInstanceDesc(instance);
+        UniquePtr<FrameTextures> replacement;
+        if (resize)
+        {
+            replacement = MakeUnique<FrameTextures>();
+            if (!replacement->DescribeTextures(desc, settings.resourceSize[0], settings.resourceSize[1]))
+            {
+                return;
+            }
+        }
         auto result = nrd::SetCommonSettings(instance, settings);
         if (result != nrd::Result::SUCCESS)
         {
@@ -719,63 +766,38 @@ namespace Spark::Render
         result = nrd::GetComputeDispatches(instance, &kDenoiserId, 1, dispatches, count);
         if (result != nrd::Result::SUCCESS || !dispatches || count == 0)
         {
-            LOG_ERROR("[NRDSystem] Could not prepare the startup dispatches ({}).", static_cast<unsigned>(result));
+            LOG_ERROR("[NRDSystem] Could not prepare the REBLUR dispatches ({}).", static_cast<unsigned>(result));
             return;
         }
 
-        const auto& desc = *nrd::GetInstanceDesc(instance);
-        auto startup = MakeUnique<StartupClears>();
-        if (!startup->DescribeTextures(desc, settings.resourceSize[0], settings.resourceSize[1]))
+        if (replacement)
         {
-            return;
-        }
-
-        for (uint32_t i = 0; i < count; ++i)
-        {
-            const auto& dispatch = dispatches[i];
-            if (dispatch.pipelineIndex >= m_state->m_pipelines.size() || !m_state->m_pipelines[dispatch.pipelineIndex]
-                || dispatch.gridWidth == 0 || dispatch.gridHeight == 0
-                || dispatch.constantBufferDataSize > desc.constantBufferMaxDataSize
-                || (dispatch.constantBufferDataSize != 0 && !dispatch.constantBufferData)
-                || !HasValidResources(desc, dispatch))
+            if (!replacement->AllocatePermanentTextures(rhiContext, state.m_factory, *state.m_permanentPool))
             {
-                LOG_ERROR("[NRDSystem] Invalid startup dispatch {} (pipeline {}).", i, dispatch.pipelineIndex);
                 return;
             }
-
-            const auto& pipeline = desc.pipelines[dispatch.pipelineIndex];
-            const auto clearType = GetClearType(pipeline.shaderIdentifier);
-            if (clearType != ClearType::Count)
+            if (state.m_textures)
             {
-                if (!startup->AddDispatch(clearType, dispatch))
-                {
-                    LOG_ERROR("[NRDSystem] Could not map startup Clear dispatch {} (pipeline {}).", i, dispatch.pipelineIndex);
-                    return;
-                }
+                state.m_textures->ReleasePermanentTextures(rhiContext);
             }
+            state.m_textures = eastl::move(replacement);
+        }
+        if (restart)
+        {
+            LOG_INFO("[NRDSystem] Prepared {} NRD dispatches for MainView {}x{} after restart.",
+                count, settings.rectSize[0], settings.rectSize[1]);
         }
 
-        if (!startup->m_completionTexture)
-        {
-            LOG_ERROR("[NRDSystem] The startup list did not include a permanent texture Clear.");
-            return;
-        }
-
-        if (!startup->AllocatePermanentTextures(rhiContext, m_state->m_factory, *m_state->m_permanentPool))
-        {
-            return;
-        }
-        const auto clearCount = startup->m_dispatchCount;
-        m_state->m_startupClears = eastl::move(startup);
-        LOG_INFO("[NRDSystem] Prepared {} startup dispatches ({} Clear, {} REBLUR) for MainView {}x{}.",
-            count, clearCount, count - clearCount, settings.rectSize[0], settings.rectSize[1]);
+        state.m_dispatches = eastl::span<const nrd::DispatchDesc>(dispatches, count);
+        state.m_lastView = mainView;
+        state.m_lastFrameNumber = time.m_frameNumber;
     }
 
     void NRDSystem::Shutdown(RHI::RHIContext& rhiContext)
     {
-        if (m_state && m_state->m_startupClears)
+        if (m_state && m_state->m_textures)
         {
-            m_state->m_startupClears->ReleasePermanentTextures(rhiContext);
+            m_state->m_textures->ReleasePermanentTextures(rhiContext);
         }
         m_state.reset();
     }
