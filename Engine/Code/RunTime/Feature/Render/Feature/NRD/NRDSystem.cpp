@@ -3,6 +3,7 @@
 #if SPARK_WITH_NRD
 #include "NRDInputPass.h"
 #include "NRDReblurConstants.h"
+#include "NRDViewOutput.h"
 
 #include <math.h>
 
@@ -344,8 +345,8 @@ namespace Spark::Render
                 m_width = width;
                 m_height = height;
                 const auto fullSize = CreateTextureDescriptor(width, height, RHI::Format::R16G16B16A16_FLOAT);
-                m_diffuseOutput = { RHI::AttachmentId("NRDDiffuseOutput"), fullSize };
-                m_specularOutput = { RHI::AttachmentId("NRDSpecularOutput"), fullSize };
+                m_diffuseOutput = { NRDOutputs::Diffuse, fullSize };
+                m_specularOutput = { NRDOutputs::Specular, fullSize };
                 return DescribeTexturePool(m_permanent, "NRD Permanent", instance.permanentPool, instance.permanentPoolSize,
                            width, height)
                     && DescribeTexturePool(m_transient, "NRD Transient", instance.transientPool, instance.transientPoolSize,
@@ -706,6 +707,7 @@ namespace Spark::Render
             return;
         }
         auto& state = *m_state;
+        rhiContext.Clear<NRDViewOutput>();
         state.m_dispatches = {};
 
         const auto mainViews = rhiContext.GetView<MainViewTag, View, ViewHistory, ViewIndex>(Exclude<DeadTag, ViewInactiveTag>);
@@ -791,6 +793,8 @@ namespace Spark::Render
         state.m_dispatches = eastl::span<const nrd::DispatchDesc>(dispatches, count);
         state.m_lastView = mainView;
         state.m_lastFrameNumber = time.m_frameNumber;
+        rhiContext.Add<NRDViewOutput>(mainView, NRDViewOutput{
+            { settings.rectSize[0], settings.rectSize[1] }, settings.denoisingRange / settings.viewZScale });
     }
 
     void NRDSystem::Shutdown(RHI::RHIContext& rhiContext)
@@ -798,6 +802,7 @@ namespace Spark::Render
         if (m_state && m_state->m_textures)
         {
             m_state->m_textures->ReleasePermanentTextures(rhiContext);
+            rhiContext.Clear<NRDViewOutput>();
         }
         m_state.reset();
     }

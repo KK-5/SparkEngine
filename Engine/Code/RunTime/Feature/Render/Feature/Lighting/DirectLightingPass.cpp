@@ -6,8 +6,11 @@
 #include <Binding/Material/MaterialBinding.h>
 #include <Binding/Scene/SceneBinding.h>
 #include <Binding/View/ViewBinding.h>
+#include <CoreComponents/Tags.h>
+#include <Feature/NRD/NRDViewOutput.h>
 #include <Feature/SceneTextures/SceneTextures.h>
 #include <Geometry/MeshGeometry.h>
+#include <Log/ILogSystem.h>
 #include <Pass/RenderPass.h>
 #include <RayTracing/RayTracingScene.h>
 #include <Resource/AssetManagerInterface.h>
@@ -155,6 +158,25 @@ namespace Spark::Render
     {
         namespace Signal = SceneTextures::DirectLighting;
         auto config = MakeConfig("engine://Shaders/Lighting/DirectLightingComposite.hlsl");
+#if SPARK_WITH_NRD
+        auto* assets = Service<Resource::AssetManager>::Get();
+        const auto nrdShader = assets->LoadAsset<Resource::ShaderAsset>(
+            Resource::AssetId::Of<Resource::ShaderAsset>("engine://Shaders/Lighting/DirectLightingNRDComposite.hlsl"));
+        const bool useNRDShader = nrdShader && nrdShader->GetStageReflection(RHI::ShaderStage::Vertex)
+            && nrdShader->GetStageReflection(RHI::ShaderStage::Fragment);
+        if (useNRDShader)
+        {
+            config.m_vertexShader = nrdShader;
+            config.m_fragmentShader = nrdShader;
+        }
+        else
+        {
+            LOG_WARN("[DirectLightingPass] Could not load the NRD composite shader. Using raw direct lighting.");
+        }
+#else
+        constexpr bool useNRDShader = false;
+#endif
+
         config.m_renderTargetLayout.m_colorAttachmentCount = 1;
         config.m_renderTargetLayout.m_colorFormats[0] = RHI::Format::R16G16B16A16_FLOAT;
         auto& blend = config.m_renderStates.m_blendState.m_targets[0];
@@ -174,7 +196,7 @@ namespace Spark::Render
             .RenderTargetLayout(config.m_renderTargetLayout)
             .RenderStates(config.m_renderStates)
             .RendersView<MainViewTag>()
-            .Build([](RenderPassScopes& p)
+            .Build([useNRDShader](RenderPassScopes& p)
             {
                 p.ImportShared<ViewBufferTag>(RHI::AttachmentId("Views"));
                 RHI::AttachmentLoadStoreAction load;
@@ -184,6 +206,19 @@ namespace Spark::Render
                 scope.ReadBuffer(RHI::AttachmentId("Views"));
                 scope.ReadImage(Signal::DiffuseName()).Bind(RHI::InputName("g_DirectDiffuse"));
                 scope.ReadImage(Signal::SpecularName()).Bind(RHI::InputName("g_DirectSpecular"));
+                if (useNRDShader)
+                {
+                    auto& rhiContext = *RHI::RHIExecuteContext::Current();
+                    const auto view = rhiContext.GetView<MainViewTag, NRDViewOutput>(Exclude<DeadTag, ViewInactiveTag>).front();
+                    const auto* output = view == RHI::NullHandle ? nullptr : &rhiContext.Get<NRDViewOutput>(view);
+
+                    // Raw views fill the optional slots on frames with an empty NRD rect.
+                    scope.ReadImage(output ? NRDOutputs::Diffuse : Signal::DiffuseName()).Bind(RHI::InputName("g_NRDDiffuse"));
+                    scope.ReadImage(output ? NRDOutputs::Specular : Signal::SpecularName()).Bind(RHI::InputName("g_NRDSpecular"));
+                    scope.ReadImage(Signal::ViewZName()).Bind(RHI::InputName("g_LightingViewZ"));
+                    scope.Constant(RHI::InputName("nrdRectSize"), output ? output->m_rectSize : eastl::array<uint32_t, 2>{});
+                    scope.Constant(RHI::InputName("nrdDenoisingRange"), output ? output->m_denoisingRange : 0.0f);
+                }
                 // Only material colors survive reflection in the composition shader.
                 scope.ReadImage(RHI::AttachmentId("GBufferSurface")).Bind(RHI::InputName("g_GBufferSurface"));
                 scope.ReadImage(RHI::AttachmentId("GBufferBaseColor")).Bind(RHI::InputName("g_GBufferBaseColor"));
