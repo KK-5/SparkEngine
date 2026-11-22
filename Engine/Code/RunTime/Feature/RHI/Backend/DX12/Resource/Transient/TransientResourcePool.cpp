@@ -297,9 +297,14 @@ namespace Spark::RHI::DX12
             {
                 if (GetDescriptor().m_allowCommittedFallback)
                 {
-                    LOG_WARN("[TransientResourcePool] VirtualBlock full (size {} align {}); "
-                             "falling back to committed image.",
-                             allocationInfo.SizeInBytes, allocationInfo.Alignment);
+                    D3D12MA::Statistics stats{};
+                    bucket.m_offsetBlock->GetStatistics(&stats);
+                    LOG_WARN("[TransientResourcePool] VirtualBlock full for image '{}' (hash {:#x}, {}x{}, DXGI format {}, "
+                             "frame slot {}, size {} align {}, {} of {} bytes reserved). Falling back to committed image.",
+                             createInfo.m_debugName.GetCStr(), createInfo.m_debugName.GetHash(),
+                             resourceDesc.Width, resourceDesc.Height, static_cast<uint32_t>(resourceDesc.Format),
+                             device.GetFrameIndex(), allocationInfo.SizeInBytes, allocationInfo.Alignment,
+                             stats.AllocationBytes, stats.BlockBytes);
                     return CreateCommittedImage(createInfo, resourceDesc, allocationInfo, allocFence.m_queue);
                 }
                 LOG_ERROR("[TransientResourcePool] VirtualBlock allocation failed (size {} align {}); "

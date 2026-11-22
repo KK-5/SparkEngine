@@ -218,6 +218,7 @@ namespace Spark::Render
         DirectLightingPass::SetUp(passContext);
         auto& rhi = *Service<RHI::RHIInterface>::Get();
         m_nrdSystem.Init(*rhi.GetRHIFactory(), *rhi.GetDevice());
+        m_nrdSystem.SetUp(passContext);
 
         // The closest / furthest depth mip chains over the finished SceneDepth, on the frames
         // something reads them: screen-space reflections march the closest one.
@@ -325,7 +326,7 @@ namespace Spark::Render
         // itself can be released — any in-flight Present has completed and
         // the imported ImageView entities are gone.
         m_renderGraph.Shutdown();
-        m_nrdSystem.Shutdown();
+        m_nrdSystem.Shutdown(*RHI::RHIExecuteContext::Current());
 
         // Release native buffers the passes read, so only once the GPU is idle.
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());

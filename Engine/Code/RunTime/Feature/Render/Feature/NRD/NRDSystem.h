@@ -16,6 +16,8 @@ namespace Spark::RHI
 
 namespace Spark::Render
 {
+    class PassContext;
+
     class NRDSystem
     {
     public:
@@ -23,8 +25,10 @@ namespace Spark::Render
         ~NRDSystem();
 
         void Init(RHI::Factory& factory, RHI::Device& device);
-        void PrepareFrame(const RHI::RHIContext& rhiContext, const FrameTime& time);
-        void Shutdown();
+        void SetUp(PassContext& passes);
+        void PrepareFrame(RHI::RHIContext& rhiContext, const FrameTime& time);
+        //! After the render graph has made the GPU idle.
+        void Shutdown(RHI::RHIContext& rhiContext);
 
     private:
         struct State;
