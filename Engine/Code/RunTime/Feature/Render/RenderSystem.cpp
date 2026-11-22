@@ -91,7 +91,9 @@ namespace Spark::Render
             return false;
         }
 
-        if (!m_renderGraph.Init(*device))
+        // Signal packing keeps the full-resolution lighting inputs and NRD targets live together.
+        constexpr uint64_t transientImageBudgetInBytes = SPARK_WITH_NRD ? 384ull * 1024 * 1024 : 0;
+        if (!m_renderGraph.Init(*device, transientImageBudgetInBytes))
         {
             LOG_ERROR("[RenderSystem] RenderGraph init failed.");
             return false;
@@ -211,14 +213,15 @@ namespace Spark::Render
         auto velocityResolvePassCfg = VelocityResolvePass::DefaultConfig();
         VelocityResolvePass::SetUp(passContext, velocityResolvePassCfg);
 
-        // Opaque lighting is now direct-only, 1 spp. NRD will sit between its
-        // signal producer and composition. Shadow maps above remain available
+        // Opaque lighting is direct-only, 1 spp. NRD prepares the signals before
+        // composition. Shadow maps above remain available
         // to forward translucency; opaque visibility uses the TLAS instead.
         LightWeightTreePass::SetUp(passContext);
         DirectLightingPass::SetUp(passContext);
         auto& rhi = *Service<RHI::RHIInterface>::Get();
         m_nrdSystem.Init(*rhi.GetRHIFactory(), *rhi.GetDevice());
         m_nrdSystem.SetUp(passContext);
+        DirectLightingPass::SetUpComposite(passContext);
 
         // The closest / furthest depth mip chains over the finished SceneDepth, on the frames
         // something reads them: screen-space reflections march the closest one.

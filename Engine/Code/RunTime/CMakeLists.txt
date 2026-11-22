@@ -57,6 +57,11 @@ target_link_libraries(${TARGET_NAME}
 set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 17)
 set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Runtime")
 
+if(TARGET NRD::NRD)
+    get_target_property(nrd_shader_dir NRD::NRD SPARK_NRD_SHADER_DIR)
+    target_compile_definitions(${TARGET_NAME} PRIVATE SPARK_NRD_SHADER_DIR="${nrd_shader_dir}")
+endif()
+
 target_compile_options(${TARGET_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 target_compile_options(${TARGET_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/WX->")
 

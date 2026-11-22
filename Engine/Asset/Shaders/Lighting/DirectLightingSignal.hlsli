@@ -3,6 +3,8 @@
 #ifndef SPARK_DIRECT_LIGHTING_SIGNAL_HLSLI
 #define SPARK_DIRECT_LIGHTING_SIGNAL_HLSLI
 
+static const float2 kDirectLightingInvalidMotion = float2(2.0, 2.0);
+
 void DirectLightingMaterialFactors(float3 diffuseColor, float3 specularColor,
                                    out float3 diffuseFactor, out float3 specularFactor)
 {

@@ -31,7 +31,8 @@ namespace Spark::Render
     class RenderGraph final
     {
     public:
-        bool Init(RHI::Device& device);
+        //! The image budget is per frame slot. Zero selects the backend default.
+        bool Init(RHI::Device& device, uint64_t transientImageBudgetInBytes = 0);
 
         //! Register the swap chain into the active RHIContext as imported entities, one
         //! per back buffer. Must run after Init, and requires RHIExecuteContext to be

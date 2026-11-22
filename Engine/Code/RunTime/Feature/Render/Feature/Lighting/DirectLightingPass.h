@@ -11,5 +11,6 @@ namespace Spark::Render
     struct DirectLightingPass
     {
         static void SetUp(PassContext& ctx);
+        static void SetUpComposite(PassContext& ctx);
     };
 }

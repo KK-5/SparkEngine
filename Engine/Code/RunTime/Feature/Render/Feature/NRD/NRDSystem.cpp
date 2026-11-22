@@ -1,6 +1,8 @@
 #include "NRDSystem.h"
 
 #if SPARK_WITH_NRD
+#include "NRDInputPass.h"
+
 #include <math.h>
 
 #include <EASTL/algorithm.h>
@@ -290,6 +292,19 @@ namespace Spark::Render
             }
         }
 
+        RHI::Format GetNormalRoughnessFormat(nrd::NormalEncoding encoding)
+        {
+            switch (encoding)
+            {
+            case nrd::NormalEncoding::RGBA8_UNORM: return GetTextureFormat(nrd::Format::RGBA8_UNORM);
+            case nrd::NormalEncoding::RGBA8_SNORM: return GetTextureFormat(nrd::Format::RGBA8_SNORM);
+            case nrd::NormalEncoding::R10_G10_B10_A2_UNORM: return GetTextureFormat(nrd::Format::R10_G10_B10_A2_UNORM);
+            case nrd::NormalEncoding::RGBA16_UNORM: return GetTextureFormat(nrd::Format::RGBA16_UNORM);
+            case nrd::NormalEncoding::RGBA16_SNORM: return GetTextureFormat(nrd::Format::RGBA16_SFLOAT);
+            default: return RHI::Format::Unknown;
+            }
+        }
+
         RHI::ImageDescriptor CreateTextureDescriptor(uint32_t width, uint32_t height, RHI::Format format)
         {
             auto desc = RHI::ImageDescriptor::Create2D(kTextureBindFlags, width, height, format);
@@ -340,7 +355,6 @@ namespace Spark::Render
             bool DescribeTextures(const nrd::InstanceDesc& instance, uint32_t width, uint32_t height)
             {
                 const auto fullSize = CreateTextureDescriptor(width, height, RHI::Format::R16G16B16A16_FLOAT);
-                m_motion = { RHI::AttachmentId("NRDMotion"), fullSize };
                 m_diffuseOutput = { RHI::AttachmentId("NRDDiffuseOutput"), fullSize };
                 m_specularOutput = { RHI::AttachmentId("NRDSpecularOutput"), fullSize };
                 return DescribeTexturePool(m_permanent, "NRD Permanent", instance.permanentPool, instance.permanentPoolSize,
@@ -425,7 +439,7 @@ namespace Spark::Render
 
             eastl::vector<GraphTexture> m_permanent;
             eastl::vector<GraphTexture> m_transient;
-            GraphTexture m_motion;
+            GraphTexture m_motion{ NRDInputs::Motion, {} };
             GraphTexture m_diffuseOutput;
             GraphTexture m_specularOutput;
             eastl::array<eastl::vector<ClearDispatch>, kClearTypeCount> m_pendingDispatches;
@@ -441,6 +455,9 @@ namespace Spark::Render
 
         RHI::Factory& m_factory;
         UniquePtr<nrd::Instance, DestroyInstance> m_instance;
+        nrd::ReblurSettings m_reblurSettings;
+        Ptr<Resource::ShaderAsset> m_inputShader;
+        RHI::Format m_normalRoughnessFormat = RHI::Format::Unknown;
         Ptr<RHI::PipelineLayoutDescriptor> m_layout;
         Ptr<RHI::PipelineLayoutDescriptor> m_clearLayout;
         eastl::vector<Ptr<RHI::PipelineState>> m_pipelines;
@@ -468,6 +485,11 @@ namespace Spark::Render
         for (const auto& clear : pending)
         {
             const auto& texture = *clear.m_target;
+            if (&texture == &m_startupClears->m_motion)
+            {
+                // NRDInputPass declares this attachment after the startup Clear passes.
+                continue;
+            }
             if (texture.m_resource != RHI::NullHandle)
             {
                 pass.Import(texture.m_name, texture.m_resource);
@@ -535,6 +557,19 @@ namespace Spark::Render
             return;
         }
 
+        auto state = MakeUnique<State>(factory);
+        state->m_normalRoughnessFormat = GetNormalRoughnessFormat(library.normalEncoding);
+        if (state->m_normalRoughnessFormat == RHI::Format::Unknown)
+        {
+            LOG_ERROR("[NRDSystem] Unsupported normal encoding ({}).", static_cast<unsigned>(library.normalEncoding));
+            return;
+        }
+        state->m_inputShader = NRDInputPass::LoadShader();
+        if (!state->m_inputShader)
+        {
+            return;
+        }
+
         const nrd::DenoiserDesc denoiser{ kDenoiserId, nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR };
         nrd::InstanceCreationDesc creation{};
         creation.denoisers = &denoiser;
@@ -547,8 +582,14 @@ namespace Spark::Render
             return;
         }
 
-        auto state = MakeUnique<State>(factory);
         state->m_instance.reset(instance);
+        const auto settingsResult = nrd::SetDenoiserSettings(*instance, kDenoiserId, &state->m_reblurSettings);
+        if (settingsResult != nrd::Result::SUCCESS)
+        {
+            LOG_ERROR("[NRDSystem] SetDenoiserSettings failed ({}).", static_cast<unsigned>(settingsResult));
+            return;
+        }
+
         const auto& desc = *nrd::GetInstanceDesc(*instance);
         state->m_layout = CreatePipelineLayout(factory, desc);
         state->m_clearLayout = CreateClearPipelineLayout(factory, desc);
@@ -616,6 +657,10 @@ namespace Spark::Render
             .ImportPipeline(m_state->m_pipelines[uintPipeline], PassPipelineLayout{ m_state->m_clearLayout, {} })
             .Build([this](ComputePassScopes& pass) { m_state->BuildClear(ClearType::Uint, pass); })
             .Finalize();
+
+        const auto& hitDistance = m_state->m_reblurSettings.hitDistanceParameters;
+        NRDInputPass::SetUp(passes, m_state->m_inputShader, m_state->m_normalRoughnessFormat,
+            { hitDistance.A, hitDistance.B, hitDistance.C });
     }
 
     void NRDSystem::PrepareFrame(RHI::RHIContext& rhiContext, const FrameTime& time)
@@ -659,7 +704,7 @@ namespace Spark::Render
         settings.timeDeltaBetweenFrames = time.m_realDeltaTime * 1000.0f;
         settings.accumulationMode = nrd::AccumulationMode::CLEAR_AND_RESTART;
 
-        // The clear-only stage prepares one startup list. REBLUR will advance history when connected.
+        // Prepare the startup Clear list once. REBLUR will advance history when connected.
         m_state->m_startupFrameAttempted = true;
         auto& instance = *m_state->m_instance;
         auto result = nrd::SetCommonSettings(instance, settings);

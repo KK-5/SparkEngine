@@ -149,8 +149,12 @@ namespace Spark::Render
                 scope.Close();
             })
             .Finalize();
+    }
 
-        config = MakeConfig("engine://Shaders/Lighting/DirectLightingComposite.hlsl");
+    void DirectLightingPass::SetUpComposite(PassContext& ctx)
+    {
+        namespace Signal = SceneTextures::DirectLighting;
+        auto config = MakeConfig("engine://Shaders/Lighting/DirectLightingComposite.hlsl");
         config.m_renderTargetLayout.m_colorAttachmentCount = 1;
         config.m_renderTargetLayout.m_colorFormats[0] = RHI::Format::R16G16B16A16_FLOAT;
         auto& blend = config.m_renderStates.m_blendState.m_targets[0];

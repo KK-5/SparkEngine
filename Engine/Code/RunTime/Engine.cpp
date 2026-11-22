@@ -54,6 +54,9 @@ namespace Spark
         m_vfs = CreateSystem<VFSSystem>();
         m_vfs->Init();
         m_vfs->Mount("engine", "Engine/Asset");
+#ifdef SPARK_NRD_SHADER_DIR
+        m_vfs->Mount("nrd", SPARK_NRD_SHADER_DIR, false);
+#endif
 
         // Not alongside the editor's mounts: those land after SetUp returns, by which time
         // AssetManager has already decided whether a cache exists. Unwatched -- every event

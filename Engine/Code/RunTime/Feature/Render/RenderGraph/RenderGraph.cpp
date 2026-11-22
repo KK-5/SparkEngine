@@ -79,7 +79,7 @@ namespace Spark::Render
         }
     }
 
-    bool RenderGraph::Init(RHI::Device& device)
+    bool RenderGraph::Init(RHI::Device& device, uint64_t transientImageBudgetInBytes)
     {
         if (m_commandQueueContext.Init(device) != RHI::ResultCode::Success)
         {
@@ -96,6 +96,7 @@ namespace Spark::Render
         m_pool = factory.CreateTransientResourcePool();
         ASSERT(m_pool != nullptr, "[RenderGraph] Factory::CreateTransientResourcePool returned null.");
         RHI::TransientResourcePoolDescriptor desc;
+        desc.m_imageBudgetInBytes = transientImageBudgetInBytes;
         desc.m_allowCrossBatchReuse = false;  // There is a bug in cross batch reuse
         if (m_pool->Init(device, desc) != RHI::ResultCode::Success)
         {

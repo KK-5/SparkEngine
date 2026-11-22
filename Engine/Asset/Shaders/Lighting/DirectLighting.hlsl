@@ -69,7 +69,7 @@ PSOutput PSMain(VSOutput input)
     output.NormalRoughness = float4(N, max(saturate(gbuffer.Roughness), BRDF_MIN_PERCEPTUAL_ROUGHNESS));
     output.ViewZ = abs(ConvertFromDeviceZ(view, gbuffer.Depth));
     const float2 velocity = g_Velocity.Load(int3(pixel, 0));
-    output.Motion = IsVelocityWritten(velocity) ? -velocity * float2(0.5, -0.5) : float2(2.0, 2.0);
+    output.Motion = IsVelocityWritten(velocity) ? -velocity * float2(0.5, -0.5) : kDirectLightingInvalidMotion;
     if (g_Scope.lightingReady == 0u)
     {
         return output;
