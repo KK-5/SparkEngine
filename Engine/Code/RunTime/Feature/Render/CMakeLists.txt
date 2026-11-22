@@ -6,6 +6,7 @@ set(SOURCES
     Feature/UI/UIPass.cpp
     Feature/DepthPre/DepthPrePass.cpp
     Feature/GBuffer/GBufferPass.cpp
+    Feature/NRD/NRDSystem.cpp
     Feature/ShadowProjection/ShadowProjectionPass.cpp
     Feature/Lighting/LightsPass.cpp
     Feature/Lighting/DirectLightingPass.cpp

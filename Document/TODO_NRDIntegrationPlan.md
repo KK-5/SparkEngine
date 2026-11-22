@@ -302,7 +302,7 @@ NRD SDK 由 `cmake/NRD` 独立准备。该入口需要 CMake 3.30+、Git 和 VS 
 ```powershell
 cmake -S cmake/NRD -B build/nrd-sdk -G "Visual Studio 18 2026" -A x64
 cmake --build build/nrd-sdk --target nrd-sdk
-cmake --preset windows-msvc-debug -DSPARK_NRD_SDK_DIR="$PWD/build/nrd-sdk/_NRD_SDK"
+cmake --preset windows-msvc-debug
 ```
 
 - 默认由 `nrd-sdk` target 检出 `v4.18.0`。已下载源码时，在 SDK 的配置命令里加 `-DSPARK_NRD_SOURCE_DIR=E:/NRD`，
@@ -312,9 +312,9 @@ cmake --preset windows-msvc-debug -DSPARK_NRD_SDK_DIR="$PWD/build/nrd-sdk/_NRD_S
   源码目录和 SDK 准备工程的构建目录。
 - 多配置生成器一次产出 `Lib/Debug` 和 `Lib/Release`，每套包含 `NRD.lib` 和 `ShaderMakeBlob.lib`。单配置生成器
   产出对应库。SDK 还包含 `Include` 和 `Shaders`，其中 `NRDConfig.hlsli` 由该次构建生成。
-- Spark 的 `SPARK_NRD_SDK_DIR` 指向构建好的 `_NRD_SDK`。Render 层链接 `NRD::NRD`，Debug 用 Debug 库，Release、
-  RelWithDebInfo 和 MinSizeRel 用 Release 库。显式指定 SDK 时，缺失的文件会在 CMake 配置时报出。
-  默认 `SPARK_WITH_NRD=0`，渲染走直通。
+- Spark 默认启用 `SPARK_WITH_NRD`，使用 `build/nrd-sdk/_NRD_SDK`。SDK 在其他位置时，用 `SPARK_NRD_SDK_DIR` 指定。
+  Render 层链接 `NRD::NRD`，Debug 用 Debug 库，Release、RelWithDebInfo 和 MinSizeRel 用 Release 库。
+  缺失的 SDK 文件会在 CMake 配置时报出。无需 NRD 的构建可显式设置 `-DSPARK_WITH_NRD=OFF`。
 - 信号打包接入时，将 SDK 的 `Shaders` 加进 Spark 的 DXC include 路径。将 `#include <NRD.h>` 收在 NRD 接入层。
 - **一致性**：`NRD_NORMAL_ENCODING` / `NRD_ROUGHNESS_ENCODING` / 两个 space 号必须与引擎 shader 编译时用的
   `NRDConfig.hlsli` 是同一份；启动时用 `GetLibraryDesc()` 校验并断言，同时断言 `NRD_VERSION_MAJOR/MINOR`

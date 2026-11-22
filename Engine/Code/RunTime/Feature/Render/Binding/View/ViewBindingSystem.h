@@ -31,6 +31,8 @@ namespace Spark::Render
     public:
         void Init(RHI::RHIContext& rhiCtx);
         void Update(const FrameTime& time);
+        //! After the graph runs, record this frame's views for the next frame.
+        void AdvanceHistory(RHI::RHIContext& rhiCtx, const FrameTime& time);
         //! After the GPU is idle.
         void Shutdown(RHI::RHIContext& rhiCtx);
 

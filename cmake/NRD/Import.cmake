@@ -1,15 +1,21 @@
-set(SPARK_NRD_SDK_DIR "" CACHE PATH "Path to a built Spark NRD SDK")
-if(SPARK_NRD_SDK_DIR STREQUAL "")
+option(SPARK_WITH_NRD "Build with NVIDIA Real-Time Denoisers" ON)
+set(SPARK_NRD_SDK_DIR "" CACHE PATH "Path to a built Spark NRD SDK (empty uses build/nrd-sdk/_NRD_SDK)")
+if(NOT SPARK_WITH_NRD)
     return()
 endif()
 
-get_filename_component(nrd_sdk_dir "${SPARK_NRD_SDK_DIR}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+if(SPARK_NRD_SDK_DIR STREQUAL "")
+    set(nrd_sdk_dir "${SPARK_ROOT_DIR}/build/nrd-sdk/_NRD_SDK")
+else()
+    get_filename_component(nrd_sdk_dir "${SPARK_NRD_SDK_DIR}" ABSOLUTE BASE_DIR "${SPARK_ROOT_DIR}")
+endif()
 
 foreach(nrd_file IN ITEMS
         Include/NRD.h Include/NRDDescs.h Include/NRDSettings.h
         Shaders/NRD.hlsli Shaders/NRDConfig.hlsli)
     if(NOT EXISTS "${nrd_sdk_dir}/${nrd_file}")
-        message(FATAL_ERROR "SPARK_NRD_SDK_DIR is missing '${nrd_file}' in '${nrd_sdk_dir}'. Build the SDK from cmake/NRD first.")
+        message(FATAL_ERROR "NRD SDK is missing '${nrd_file}' in '${nrd_sdk_dir}'. Build the SDK from cmake/NRD, "
+            "set SPARK_NRD_SDK_DIR to an existing SDK, or configure with -DSPARK_WITH_NRD=OFF.")
     endif()
 endforeach()
 

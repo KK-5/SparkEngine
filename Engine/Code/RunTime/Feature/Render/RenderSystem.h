@@ -14,6 +14,7 @@
 
 #include "Feature/UI/RenderUI.h"
 #include "Feature/UI/UIProcessFeature.h"
+#include "Feature/NRD/NRDSystem.h"
 #include "Binding/View/ViewBindingSystem.h"
 #include "View/CameraViewSystem.h"
 #include "View/ShadowViewSystem.h"
@@ -84,6 +85,7 @@ namespace Spark::Render
         ShadowViewSystem  m_shadowViewSystem;
         ShadowMaskSystem  m_shadowMaskSystem;
         ViewBindingSystem m_viewBindingSystem;
+        NRDSystem         m_nrdSystem;
         SceneTextureSystem m_sceneTextureSystem;
         SceneBindingSystem m_sceneBindingSystem;
         MaterialTextureSystem m_materialTextureSystem;

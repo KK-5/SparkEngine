@@ -216,6 +216,8 @@ namespace Spark::Render
         // to forward translucency; opaque visibility uses the TLAS instead.
         LightWeightTreePass::SetUp(passContext);
         DirectLightingPass::SetUp(passContext);
+        auto& rhi = *Service<RHI::RHIInterface>::Get();
+        m_nrdSystem.Init(*rhi.GetRHIFactory(), *rhi.GetDevice());
 
         // The closest / furthest depth mip chains over the finished SceneDepth, on the frames
         // something reads them: screen-space reflections march the closest one.
@@ -279,9 +281,8 @@ namespace Spark::Render
     {
         InitRHIData();
 
-        // Render-side helpers + shared resources, paired with their Shutdown in
-        // ShutdownInternal. Here rather than in SetUpDefaultPipeline, which is passes only: a
-        // pipeline of a sample's own still renders views, and they need none of the passes.
+        // Shared render helpers are needed by custom pipelines too. Their resources are
+        // released in ShutdownInternal.
         auto& rhiCtxForInit = *RHI::RHIExecuteContext::Current();
         m_sceneTextureSystem.Init(rhiCtxForInit, *Service<RHI::RHIInterface>::Get()->GetDevice());
         m_sceneBindingSystem.Init(rhiCtxForInit);
@@ -324,6 +325,7 @@ namespace Spark::Render
         // itself can be released — any in-flight Present has completed and
         // the imported ImageView entities are gone.
         m_renderGraph.Shutdown();
+        m_nrdSystem.Shutdown();
 
         // Release native buffers the passes read, so only once the GPU is idle.
         m_drawListCullingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -373,6 +375,7 @@ namespace Spark::Render
         // each light into LightData.
         m_shadowMaskSystem.Update();
         m_viewBindingSystem.Update(time);
+        m_nrdSystem.PrepareFrame(rhiCtx, time);
 
         m_sceneTextureSystem.Update(rhiCtx);
         m_sceneBindingSystem.Update(time);
@@ -398,6 +401,7 @@ namespace Spark::Render
         m_uiProcessFeature.Process();
 
         m_renderGraph.ExecutePipeline(passContext, renderSize, outputSize);
+        m_viewBindingSystem.AdvanceHistory(rhiCtx, time);
         m_swapChain->Present();
     }
 }

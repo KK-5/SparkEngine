@@ -23,8 +23,8 @@ namespace Spark::Render
     };
 
     //! The previous frame's View, for views that run temporal passes. Its producer adds it
-    //! invalid to opt in; ViewBindingSystem alone fills and rolls it. A view without one
-    //! encodes its previous frame as the current one.
+    //! invalid to opt in. ViewBindingSystem resolves it before rendering and records the
+    //! current view after the graph runs. An invalid history uses the current view as a fallback.
     struct ViewHistory
     {
         Math::Matrix4X4 m_worldToView = Math::Matrix4X4Const::IDENTITY;

@@ -123,10 +123,8 @@ namespace Spark::Render
         }
 
         //! Fallback matrices keep motion finite, but must not make history valid.
-        ViewHistory PreviousHistory(RHI::RHIContext& rhiCtx, RHI::RHIHandle entity,
-                                    const View& view, const FrameTime& time)
+        ViewHistory PreviousHistory(const ViewHistory* history, const View& view, const FrameTime& time)
         {
-            const auto* history = rhiCtx.TryGet<ViewHistory>(entity);
             if (history && IsHistoryCompatible(*history, view, time))
             {
                 return *history;
@@ -139,9 +137,6 @@ namespace Spark::Render
 
     void ViewBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
-
-
-
         StagingBuffer::Descriptor bufferDesc;
         bufferDesc.m_name      = ObjectName(SharedInput::Views);
         bufferDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
@@ -174,19 +169,27 @@ namespace Spark::Render
         rhiCtx->GetView<View>(Exclude<DeadTag>).each([&](RHI::RHIHandle entity, const View& view)
         {
             rhiCtx->Add<ViewIndex>(entity, ViewIndex{ static_cast<uint32_t>(m_views.size()) });
-            m_views.push_back(EncodeViewData(view, PreviousHistory(*rhiCtx, entity, view, time), time));
+            auto* history = rhiCtx->TryGet<ViewHistory>(entity);
+            const auto previous = PreviousHistory(history, view, time);
+            m_views.push_back(EncodeViewData(view, previous, time));
+            if (history)
+            {
+                *history = previous;
+            }
         });
-        const bool written = WriteAndBind(*rhiCtx);
-        if (!written)
+        if (!WriteAndBind(*rhiCtx))
         {
             rhiCtx->Clear<ViewIndex>();
         }
+    }
 
-        rhiCtx->GetView<View, ViewHistory>(Exclude<DeadTag>).each(
+    void ViewBindingSystem::AdvanceHistory(RHI::RHIContext& rhiCtx, const FrameTime& time)
+    {
+        rhiCtx.GetView<View, ViewHistory>(Exclude<DeadTag>).each(
             [&](RHI::RHIHandle entity, const View& view, ViewHistory& history)
         {
             history = CurrentHistory(view, time);
-            history.m_valid = written && !rhiCtx->Has<ViewInactiveTag>(entity);
+            history.m_valid = rhiCtx.Has<ViewIndex>(entity) && !rhiCtx.Has<ViewInactiveTag>(entity);
         });
     }
 
