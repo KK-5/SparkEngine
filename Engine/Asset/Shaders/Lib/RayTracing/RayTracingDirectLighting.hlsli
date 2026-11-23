@@ -11,7 +11,7 @@ struct DirectLightingEstimate
     float3 Specular;
     // World-space distances without denoiser packing.
     float LightSampleDistance; // zero for invalid light samples; retained when occluded
-    float SpecularHitDistance; // contributing GGX emitter first, then the contributing light sample
+    float SpecularHitDistance; // selected by the luminance of each technique's specular contribution
 };
 
 // GGX emitter discovery uses this original-receiver ray. Offsetting it would
@@ -192,14 +192,14 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
     return result;
 }
 
-// Caller supplies independent uniform random dimensions: [0,1)^4 for light
-// selection/shape and [0,1)^2 for pure GGX VNDF. Exactly one sample per technique;
-// sum their specular estimates without dividing by two. No diffuse GGX estimate.
+// Caller supplies independent uniform random dimensions for light selection/shape,
+// GGX VNDF, and specular hit distance selection. Sum the two specular estimates
+// without dividing by two. No diffuse GGX estimate.
 // context.WorldPosition must equal surface.WorldPosition before shadow offsets.
 // Settings require 0 < RayBias < MaxDistance.
 DirectLightingEstimate EvaluateDirectLightingMIS(GeometrySurface surface, RayTracingMaterial material,
     float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
-    float4 lightRandomSample, float2 ggxRandomSample, SamplerState materialSampler,
+    float4 lightRandomSample, float2 ggxRandomSample, float hitDistanceRandomSample, SamplerState materialSampler,
     RayTracingLightingSettings settings, float3 shadowOriginOffset)
 {
     const DirectLightingSample lightSample = EvaluateDirectLightingLightSample(surface, material, V, context,
@@ -210,8 +210,14 @@ DirectLightingEstimate EvaluateDirectLightingMIS(GeometrySurface surface, RayTra
     result.Diffuse = lightSample.Diffuse;
     result.Specular = lightSample.Specular + ggxSample.Specular;
     result.LightSampleDistance = lightSample.HitDistance;
+
+    // Weight the choice by MIS contributions and forward the selected distance in world units.
+    const float3 luminanceWeights = float3(0.2126, 0.7152, 0.0722);
+    const float lightWeight = max(0.0, dot(lightSample.Specular, luminanceWeights));
+    const float ggxWeight = max(0.0, dot(ggxSample.Specular, luminanceWeights));
     result.SpecularHitDistance = ggxSample.HitDistance;
-    if (result.SpecularHitDistance == 0.0 && any(lightSample.Specular > 0.0))
+    if (lightWeight > 0.0
+        && (ggxWeight == 0.0 || hitDistanceRandomSample * (lightWeight + ggxWeight) < lightWeight))
     {
         result.SpecularHitDistance = lightSample.HitDistance;
     }

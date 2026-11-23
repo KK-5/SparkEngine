@@ -30,10 +30,10 @@ void CSMain(uint3 dispatchThread : SV_DispatchThreadID)
         return;
     }
 
-    // Diagnostic: force low confidence for both inputs while REBLUR continues accumulating.
+    // Both inputs use neutral confidence until lighting gradients are available.
     if (all(pixel == 0))
     {
-        g_HistoryConfidence[pixel] = 0.0;
+        g_HistoryConfidence[pixel] = 1.0;
     }
 
     const float4 diffuse = g_RawDiffuse[pixel];

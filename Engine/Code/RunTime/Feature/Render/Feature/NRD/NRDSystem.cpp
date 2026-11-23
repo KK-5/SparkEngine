@@ -39,6 +39,8 @@ namespace Spark::Render
     namespace
     {
         constexpr nrd::Identifier kDenoiserId = 1;
+        constexpr float kHistoryTimeSeconds = 0.10f;
+        constexpr float kFrameTimeSmoothingSeconds = 0.20f;
         constexpr auto kQueue = RHI::HardwareQueueClass::Graphics;
         constexpr auto kTextureBindFlags = RHI::ImageBindFlags::ShaderReadWrite;
         constexpr uint32_t kInvalidPipeline = ~0u;
@@ -451,6 +453,7 @@ namespace Spark::Render
         eastl::span<const nrd::DispatchDesc> m_dispatches;
         RHI::RHIHandle m_lastView = RHI::NullHandle;
         uint64_t m_lastFrameNumber = 0;
+        float m_smoothedFrameTime = 1.0f / 60.0f;
 
         void BuildClear(ClearType type, ComputePassScopes& pass);
         void BuildReblur(ReblurStage stage, ComputePassScopes& pass);
@@ -766,6 +769,30 @@ namespace Spark::Render
             return;
         }
 
+        const float deltaTime = time.m_realDeltaTime;
+        const bool validDeltaTime = deltaTime > 0.0f && deltaTime <= (eastl::numeric_limits<float>::max)();
+        const float frameTime = validDeltaTime
+            ? eastl::clamp(deltaTime, 0.001f, 0.25f) : state.m_smoothedFrameTime;
+        const float smoothingWeight = frameTime / (kFrameTimeSmoothingSeconds + frameTime);
+        const float smoothedFrameTime = restart ? frameTime
+            : state.m_smoothedFrameTime + (frameTime - state.m_smoothedFrameTime) * smoothingWeight;
+
+        auto reblurSettings = state.m_reblurSettings;
+        reblurSettings.maxAccumulatedFrameNum = eastl::clamp(
+            nrd::GetMaxAccumulatedFrameNum(kHistoryTimeSeconds, 1.0f / smoothedFrameTime),
+            uint32_t{ 1 }, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
+        const uint32_t fastHistoryFrames = reblurSettings.maxAccumulatedFrameNum / 5;
+        reblurSettings.maxFastAccumulatedFrameNum = fastHistoryFrames;
+        reblurSettings.historyFixFrameNum = eastl::min(reblurSettings.historyFixFrameNum,
+            fastHistoryFrames > 0 ? fastHistoryFrames - 1 : 0u);
+        reblurSettings.maxStabilizedFrameNum = reblurSettings.maxAccumulatedFrameNum;
+        result = nrd::SetDenoiserSettings(instance, kDenoiserId, &reblurSettings);
+        if (result != nrd::Result::SUCCESS)
+        {
+            LOG_ERROR("[NRDSystem] SetDenoiserSettings failed ({}).", static_cast<unsigned>(result));
+            return;
+        }
+
         const nrd::DispatchDesc* dispatches = nullptr;
         uint32_t count = 0;
         result = nrd::GetComputeDispatches(instance, &kDenoiserId, 1, dispatches, count);
@@ -796,6 +823,7 @@ namespace Spark::Render
         state.m_dispatches = eastl::span<const nrd::DispatchDesc>(dispatches, count);
         state.m_lastView = mainView;
         state.m_lastFrameNumber = time.m_frameNumber;
+        state.m_smoothedFrameTime = smoothedFrameTime;
         rhiContext.Add<NRDViewOutput>(mainView, NRDViewOutput{
             { settings.rectSize[0], settings.rectSize[1] }, settings.denoisingRange / settings.viewZScale });
     }
