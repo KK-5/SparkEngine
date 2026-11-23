@@ -20,6 +20,7 @@ namespace Spark::Render
         inline const RHI::AttachmentId Specular("NRDInputSpecular");
         inline const RHI::AttachmentId NormalRoughness("NRDInputNormalRoughness");
         inline const RHI::AttachmentId Motion("NRDMotion");
+        inline const RHI::AttachmentId HistoryConfidence("NRDHistoryConfidence");
     }
 
     struct NRDInputPass

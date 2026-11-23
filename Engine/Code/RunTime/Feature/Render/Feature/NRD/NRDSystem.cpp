@@ -414,6 +414,8 @@ namespace Spark::Render
                 case nrd::ResourceType::IN_VIEWZ: return &SceneTextures::DirectLighting::ViewZName();
                 case nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST: return &NRDInputs::Diffuse;
                 case nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST: return &NRDInputs::Specular;
+                case nrd::ResourceType::IN_DIFF_CONFIDENCE:
+                case nrd::ResourceType::IN_SPEC_CONFIDENCE: return &NRDInputs::HistoryConfidence;
                 case nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST: return &m_diffuseOutput.m_name;
                 case nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST: return &m_specularOutput.m_name;
                 default: return nullptr;
@@ -743,6 +745,7 @@ namespace Spark::Render
         CopyMatrix(settings.viewToClipMatrixPrev, restart ? view.m_viewToClip : previous.m_viewToClip);
         settings.timeDeltaBetweenFrames = time.m_realDeltaTime * 1000.0f;
         settings.frameIndex = static_cast<uint32_t>(time.m_frameNumber);
+        settings.isHistoryConfidenceAvailable = true;
         settings.accumulationMode = restart ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
 
         auto& instance = *state.m_instance;

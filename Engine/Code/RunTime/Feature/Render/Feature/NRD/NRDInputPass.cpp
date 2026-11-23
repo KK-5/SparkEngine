@@ -50,6 +50,10 @@ namespace Spark::Render
                 pass.CreateImage(NRDInputs::Specular, image(packedFloatFormat));
                 pass.CreateImage(NRDInputs::NormalRoughness, image(normalRoughnessFormat));
                 pass.CreateImage(NRDInputs::Motion, image(packedFloatFormat));
+                auto confidence = RHI::ImageDescriptor::Create2D(
+                    RHI::ImageBindFlags::ShaderReadWrite, 1, 1, RHI::Format::R32_FLOAT);
+                confidence.m_sharedQueueMask = RHI::HardwareQueueClassMask::Graphics;
+                pass.CreateImage(NRDInputs::HistoryConfidence, confidence);
 
                 auto scope = pass.Scope();
                 scope.ReadImage(Signal::DiffuseName()).Bind(RHI::InputName("g_RawDiffuse"));
@@ -61,6 +65,7 @@ namespace Spark::Render
                 scope.WriteImage(NRDInputs::Specular).Bind(RHI::InputName("g_Specular"));
                 scope.WriteImage(NRDInputs::NormalRoughness).Bind(RHI::InputName("g_NormalRoughness"));
                 scope.WriteImage(NRDInputs::Motion).Bind(RHI::InputName("g_Motion"));
+                scope.WriteImage(NRDInputs::HistoryConfidence).Bind(RHI::InputName("g_HistoryConfidence"));
                 scope.Constant(RHI::InputName("hitDistanceParameters"), eastl::array<float, 4>{
                     hitDistanceParameters[0], hitDistanceParameters[1], hitDistanceParameters[2], 0.0f });
                 scope.Constant(RHI::InputName("inputSize"), eastl::array<uint32_t, 2>{ width, height });

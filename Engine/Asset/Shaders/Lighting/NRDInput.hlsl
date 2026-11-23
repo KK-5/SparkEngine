@@ -19,6 +19,7 @@ RWTexture2D<float4> g_Diffuse : register(u0, space2);
 RWTexture2D<float4> g_Specular : register(u1, space2);
 RWTexture2D<float4> g_NormalRoughness : register(u2, space2);
 RWTexture2D<float4> g_Motion : register(u3, space2);
+RWTexture2D<float> g_HistoryConfidence : register(u4, space2);
 
 [numthreads(8, 8, 1)]
 void CSMain(uint3 dispatchThread : SV_DispatchThreadID)
@@ -27,6 +28,12 @@ void CSMain(uint3 dispatchThread : SV_DispatchThreadID)
     if (any(pixel >= g_Scope.inputSize))
     {
         return;
+    }
+
+    // Diagnostic: force low confidence for both inputs while REBLUR continues accumulating.
+    if (all(pixel == 0))
+    {
+        g_HistoryConfidence[pixel] = 0.0;
     }
 
     const float4 diffuse = g_RawDiffuse[pixel];
