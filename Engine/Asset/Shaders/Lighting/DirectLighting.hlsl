@@ -42,7 +42,7 @@ VSOutput VSMain(uint vertexId : SV_VertexID)
 struct PSOutput
 {
     float4 Diffuse         : SV_Target0; // demodulated scene-linear RGB, light-sample distance
-    float4 Specular        : SV_Target1; // demodulated scene-linear RGB, GGX hit distance
+    float4 Specular        : SV_Target1; // demodulated scene-linear RGB, specular hit distance
     float4 NormalRoughness : SV_Target2; // signed world normal, perceptual roughness
     float  ViewZ           : SV_Target3; // positive linear camera depth
     float2 Motion          : SV_Target4; // previous UV - current UV, without jitter
@@ -110,9 +110,9 @@ PSOutput PSMain(VSOutput input)
     float3 specularFactor;
     DirectLightingMaterialFactors(gbuffer.DiffuseColor, gbuffer.SpecularColor, diffuseFactor, specularFactor);
     // Distances are raw world-space guides: no PDF/MIS weighting, averaging or
-    // material factor. Preserve zero for invalid samples and cap miss/infinity.
+    // material factor. Preserve zero for absent distances and cap infinity.
     const float diffuseHitDistance = min(lighting.LightSampleDistance, 65504.0);
-    const float specularHitDistance = min(lighting.GGXHitDistance, 65504.0);
+    const float specularHitDistance = min(lighting.SpecularHitDistance, 65504.0);
     output.Diffuse = float4(lighting.Diffuse / diffuseFactor, diffuseHitDistance);
     output.Specular = float4(lighting.Specular / specularFactor, specularHitDistance);
     return output;

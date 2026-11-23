@@ -9,9 +9,9 @@ struct DirectLightingEstimate
 {
     float3 Diffuse;
     float3 Specular;
-    // Raw metadata, not weighted or combined. No denoiser packing is applied.
+    // World-space distances without denoiser packing.
     float LightSampleDistance; // zero for invalid light samples; retained when occluded
-    float GGXHitDistance; // nearest scene/visible emitting rectangle; zero rejected, MaxDistance miss
+    float SpecularHitDistance; // contributing GGX emitter first, then the contributing light sample
 };
 
 // GGX emitter discovery uses this original-receiver ray. Offsetting it would
@@ -125,14 +125,21 @@ DirectLightingSample EvaluateDirectLightingLightSample(GeometrySurface surface, 
 
 // One sampled direction may see several nonblocking analytic emitters. Every
 // emitter uses its own light-selection PMF and conditional solid-angle density.
-float3 EvaluateDirectLightingGGXContribution(float3 specular, float ggxPdf,
-    LightSamplingContext context, LightSample lightSample, StructuredBuffer<float> weightTree, uint leafBase)
+void AccumulateDirectLightingGGXContribution(inout DirectLightingSample result, float3 specular, float ggxPdf,
+    LightSamplingContext context, LightSample lightSample, float emitterDistance,
+    StructuredBuffer<float> weightTree, uint leafBase)
 {
     const float lightPdf = EvaluateLightPdf(context, lightSample.Location, weightTree, leafBase);
     const float weight = MISPowerHeuristic(ggxPdf, lightPdf);
-    return specular * lightSample.Radiance * (weight / ggxPdf);
+    const float3 contribution = specular * lightSample.Radiance * (weight / ggxPdf);
+    result.Specular += contribution;
+    if (any(contribution > 0.0))
+    {
+        result.HitDistance = result.HitDistance == 0.0 ? emitterDistance : min(result.HitDistance, emitterDistance);
+    }
 }
 
+// Zero hit distance means this direction found no contributing emitter.
 DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, RayTracingMaterial material,
     float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
     float2 randomSample, SamplerState materialSampler, RayTracingLightingSettings settings, float3 shadowOriginOffset)
@@ -152,11 +159,9 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
     }
     const BRDFResult brdf = EvaluateRayTracingBRDF(material, V, direction);
     const RayDesc ray = MakeDirectLightingGGXRay(surface, direction, settings);
-    result.HitDistance = settings.MaxDistance;
     RayTracingHit hit;
     if (TraceClosestOpaqueTriangle(ray, settings.InstanceMask, hit))
     {
-        result.HitDistance = hit.T;
         LightSample meshSample;
         if (any(brdf.Specular > 0.0)
             && ReconstructEmissiveLightSample(context, hit, materialSampler, meshSample))
@@ -165,11 +170,10 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
             // Re-aim the corrected shadow ray at the same point, matching NEE.
             if (TraceSampledLightVisibility(surface, meshSample, settings, shadowOriginOffset))
             {
-                result.Specular += EvaluateDirectLightingGGXContribution(
-                    brdf.Specular, ggxPdf, context, meshSample, weightTree, leafBase);
+                AccumulateDirectLightingGGXContribution(
+                    result, brdf.Specular, ggxPdf, context, meshSample, hit.T, weightTree, leafBase);
             }
         }
-        // Ordinary surfaces retain distance only; no GI or reflected surface shading.
     }
 
     if (!any(brdf.Specular > 0.0))
@@ -182,12 +186,8 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
     while (QueryNextVisibleRectLight(surface, context, ray, materialSampler,
         settings, shadowOriginOffset, nextLightIndex, rectSample))
     {
-        result.Specular += EvaluateDirectLightingGGXContribution(
-            brdf.Specular, ggxPdf, context, rectSample, weightTree, leafBase);
-        // Guide only: do not shorten ray.TMax or stop accumulating other lights.
-        // A non-shadowing light behind geometry contributes RGB, while the guide
-        // still describes the nearest event along the original GGX direction.
-        result.HitDistance = min(result.HitDistance, rectSample.Distance);
+        AccumulateDirectLightingGGXContribution(
+            result, brdf.Specular, ggxPdf, context, rectSample, rectSample.Distance, weightTree, leafBase);
     }
     return result;
 }
@@ -210,7 +210,11 @@ DirectLightingEstimate EvaluateDirectLightingMIS(GeometrySurface surface, RayTra
     result.Diffuse = lightSample.Diffuse;
     result.Specular = lightSample.Specular + ggxSample.Specular;
     result.LightSampleDistance = lightSample.HitDistance;
-    result.GGXHitDistance = ggxSample.HitDistance;
+    result.SpecularHitDistance = ggxSample.HitDistance;
+    if (result.SpecularHitDistance == 0.0 && any(lightSample.Specular > 0.0))
+    {
+        result.SpecularHitDistance = lightSample.HitDistance;
+    }
     return result;
 }
 

@@ -33,15 +33,15 @@ void CSMain(uint3 dispatchThread : SV_DispatchThreadID)
     const float4 specular = g_RawSpecular[pixel];
     const float4 normalRoughness = g_RawNormalRoughness[pixel];
     const float viewZ = g_ViewZ[pixel];
-    const float linearRoughness = normalRoughness.w * normalRoughness.w;
+    const float perceptualRoughness = normalRoughness.w;
     const float diffuseHitDistance = REBLUR_FrontEnd_GetNormHitDist(
         diffuse.w, viewZ, g_Scope.hitDistanceParameters.xyz, 1.0);
     const float specularHitDistance = REBLUR_FrontEnd_GetNormHitDist(
-        specular.w, viewZ, g_Scope.hitDistanceParameters.xyz, linearRoughness);
+        specular.w, viewZ, g_Scope.hitDistanceParameters.xyz, perceptualRoughness);
 
     g_Diffuse[pixel] = REBLUR_FrontEnd_PackRadianceAndNormHitDist(diffuse.rgb, diffuseHitDistance, true);
     g_Specular[pixel] = REBLUR_FrontEnd_PackRadianceAndNormHitDist(specular.rgb, specularHitDistance, true);
-    g_NormalRoughness[pixel] = NRD_FrontEnd_PackNormalAndRoughness(normalRoughness.xyz, linearRoughness, 0.0);
+    g_NormalRoughness[pixel] = NRD_FrontEnd_PackNormalAndRoughness(normalRoughness.xyz, perceptualRoughness, 0.0);
 
     float2 motion = g_RawMotion[pixel];
     if (!all(isfinite(motion)) || all(motion == kDirectLightingInvalidMotion))

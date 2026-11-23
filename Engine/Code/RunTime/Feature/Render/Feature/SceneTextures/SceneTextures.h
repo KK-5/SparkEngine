@@ -15,11 +15,10 @@ namespace Spark::Render::SceneTextures
     //! DirectLightingSignal.hlsli's material factors (floor 0.02).
     //! Diffuse alpha is receiver-to-light distance, retained for occluded samples
     //! and lights with shadows disabled; invalid/zero-response light samples use 0.
-    //! Specular alpha is the nearest scene triangle or visible, nonzero emitting
-    //! rectangle along the GGX direction. Ordinary surfaces provide distance only.
-    //! Non-shadowing rectangles behind geometry contribute RGB without replacing
-    //! its nearer distance. Black specular responses retain scene distance only.
-    //! Rejected GGX directions use 0; miss/infinite distances are capped at 65504.
+    //! Specular alpha is the distance to the nearest emitter contributing along
+    //! the GGX direction, or the light-sample distance if only it contributed
+    //! specular. Zero means neither sample contributed specular.
+    //! Infinite distances are capped at 65504.
     //! Distances use the original receiver, not corrected shadow origins, and are
     //! neither averaged nor divided by PDFs/material factors or weighted by MIS.
     //! The guides use signed world normals + effective perceptual roughness

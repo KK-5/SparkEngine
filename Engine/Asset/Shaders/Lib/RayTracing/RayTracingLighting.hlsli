@@ -140,8 +140,8 @@ struct DirectLightingSample
 {
     float3 Diffuse;
     float3 Specular;
-    // Receiver-to-light distance, independent of visibility, PDF and material.
-    // Zero for an invalid sample. Infinite lights use settings.MaxDistance.
+    // Receiver-to-light distance. Light sampling retains it under occlusion.
+    // Zero means no distance was recorded. Infinite lights use settings.MaxDistance.
     float HitDistance;
 };
 
