@@ -214,6 +214,8 @@ GGX 侧最近命中已确认原始路径，随后只补修正起点的查询。�
 
 ### 已完成的接线与输出约定
 
+本节记录步骤 4 完成时的输出约定。后续 NRD 接入对高光距离的调整见 `766bbfe8` 和 `79ad99bf`，当前漫反射遮挡距离见 [NRD 集成方案中的方向光阴影记录](TODO_NRDIntegrationPlan.md#方向光阴影与球体明暗过渡)。
+
 `Lighting/DirectLighting.hlsl` 改为调用 `EvaluateDirectLightingMIS`：
 
 - 光源随机数保留 `SobolBurley4D(frameNumber, 0u, seed)`；GGX 使用 `SobolBurley2D(frameNumber, 1u, seed)`。

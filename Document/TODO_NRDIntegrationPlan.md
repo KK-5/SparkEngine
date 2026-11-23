@@ -20,7 +20,7 @@
 | 3a | 引擎：按字段提交运行时常量 | 代码已实现，编译与运行验收待补（见 D4） |
 | 4 | 信号层（打包、归一化、MV、范围） | 已接入（`8247bf80`） |
 | 5 | NRD 系统（instance / pool / settings / 生命周期） | 默认 REBLUR 降噪链已接入（`799a2f12`） |
-| 6 | 合成与直通回退 | 默认管线已出图（`5f0b8d90`），低帧率镜面高光拖影仍待定位，见第六节 |
+| 6 | 合成与直通回退 | 默认管线已出图（`5f0b8d90`），高光拖影和方向光阴影的复现结果见第六节 |
 | 7 | 构建与依赖（可选 CMake 依赖） | 本地源码的编译和 SDK 打包已验证 |
 
 1~3a 是引擎前置工作，4~6 是 NRD 接入本身，7 只影响构建。
@@ -283,6 +283,7 @@ model 提到 6.6、重编全部排列 —— 等于 fork，且许可证不允许
 ### D9　信号层（只列改动点，细节见 `TODO_DirectLightingMISPlan.md`）
 
 - hitT 归一化：`REBLUR_FrontEnd_GetNormHitDist`，参数与 CPU 的 `ReblurHitDistanceParameters` 同源。
+  实时直接光的漫反射 `hitT` 取到最近遮挡物或可见光源样本的距离，见[方向光阴影与球体明暗过渡](#方向光阴影与球体明暗过渡)。
 - normal/roughness：`NRD_FrontEnd_PackNormalAndRoughness`，编码与库编译宏一致；roughness 要 linear
   （引擎的 perceptual 与 alpha 是平方关系，用 `NRD_ROUGHNESS_ENCODING=SQRT_LINEAR` 最省事）。
 - radiance：`REBLUR_FrontEnd_PackRadianceAndNormHitDist(..., sanitize)`；输出用
@@ -375,6 +376,27 @@ NRD 使用单独的 `NRDMotion`，两者的颜色依赖和运动输入可分别�
    `NRDReblurPrePass` 写出的 specular tracking distance，以及
    `NRDReblurTemporalAccumulation` 使用的表面重投影与虚拟反射重投影位置。记录是否取到了旧高光位置、
    以及该位置的历史是否被接受。
+
+### 方向光阴影与球体明暗过渡
+
+复现时场景只保留一盏零角尺寸的方向光。对照在同一帧合成，左半屏读取原始直接光，右半屏读取 REBLUR 输出。
+两侧使用相同的材质还原与预曝光。关闭 TAA，固定相机，让地面投影和球体的明暗过渡都跨过视口中线。
+REBLUR 使用 `79ad99bf` 的设置，主历史按 `0.10` 秒和实际帧率换算，全屏置信度为 `1`。
+
+| 观察区域 | 原始直接光 | REBLUR 输出 |
+|---|---|---|
+| 地面的方向光投影 | 投影边界锐利 | 边缘出现灰色过渡带。使用遮挡物距离后轮廓更清楚，模糊仍可见 |
+| 球体面向光源与背向光源之间的曲面 | 亮度平滑变暗 | 暗部出现明显的硬分界 |
+
+RTXDI FullSample 先应用光源可见性，再将漫反射和高光送入降噪器。NRD-Sample 的太阳直射光则在合成阶段乘上
+SIGMA 的可见性结果。对于当前硬阴影，REBLUR 的空间滤波会按 `hitT` 降低跨边界样本的权重，仍可能把亮度混入
+阴影。分屏确认了两处异常都出现在使用 REBLUR 输出时，尚未定位到具体滤波 Pass。 [RTXDI 着色](https://github.com/NVIDIA-RTX/RTXDI/blob/main/Samples/FullSample/Shaders/LightingPasses/ShadingHelpers.hlsli#L66-L102) · [NRD-Sample 太阳光合成](https://github.com/NVIDIA-RTX/NRD-Sample/blob/simplex/Shaders/Composition.cs.hlsl#L51-L67)
+
+- `MakeSampledLightShadowRay` 复用修正起点与光源终点排除规则。实时光源采样使用最近不透明命中，从原始接收点到命中点计算 `DiffuseHitDistance`。光源可见时记录到采样点的距离，方向光继续使用远距离值。
+- 同一条射线同时提供可见性和遮挡物距离。遮挡时该光源样本的 RGB 为 `0`，高光仍按已有的贡献信号选取发光体距离。`DirectLighting.hlsl` 将漫反射距离写入原始信号的 alpha，`NRDInput.hlsl` 再做归一化。
+- `DirectLightingNRDComposite.hlsl` 中的 `kCompareRawAndDenoisedLighting` 默认是 `false`。改为 `true` 可复现左原始、右降噪的对照。
+
+球面硬边的待验证假设是，`EvaluateDirectLightingLightSample` 在 BRDF 贡献为零时返回 `hitT = 0`，而相邻受光像素的方向光归一化距离可接近 `1`。这个跳变可能改变滤波半径和权重。下一步在同屏对照中一次只替换漫反射或高光其中一路，再查看产生硬边那一路的归一化 `hitT`。
 
 ---
 

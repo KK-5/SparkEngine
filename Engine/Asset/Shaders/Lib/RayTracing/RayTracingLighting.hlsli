@@ -24,15 +24,15 @@ struct LightingSampleCounts
     uint BRDFSampleCount;
 };
 
-bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSample,
-                                 RayTracingLightingSettings settings, float3 shadowOriginOffset)
+bool MakeSampledLightShadowRay(GeometrySurface surface, LightSample lightSample,
+                               RayTracingLightingSettings settings, float3 shadowOriginOffset, out RayDesc shadowRay)
 {
+    shadowRay = (RayDesc)0;
     if (!lightSample.CastShadow)
     {
-        return true;
+        return false;
     }
 
-    RayDesc shadowRay;
     // Preserve the receiver position used by sampling, PDFs and raw hit distance.
     shadowRay.Origin = surface.WorldPosition + shadowOriginOffset
                     + surface.WorldGeometricNormal * settings.RayBias;
@@ -50,10 +50,21 @@ bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSampl
         const float distanceToLight = length(toLight);
         if (distanceToLight <= settings.RayBias)
         {
-            return true;
+            return false;
         }
         shadowRay.Direction = toLight / distanceToLight;
         shadowRay.TMax = distanceToLight - settings.RayBias;
+    }
+    return true;
+}
+
+bool TraceSampledLightVisibility(GeometrySurface surface, LightSample lightSample,
+                                 RayTracingLightingSettings settings, float3 shadowOriginOffset)
+{
+    RayDesc shadowRay;
+    if (!MakeSampledLightShadowRay(surface, lightSample, settings, shadowOriginOffset, shadowRay))
+    {
+        return true;
     }
     return TraceOpaqueVisibility(shadowRay, settings.InstanceMask);
 }
@@ -140,8 +151,8 @@ struct DirectLightingSample
 {
     float3 Diffuse;
     float3 Specular;
-    // Receiver-to-light distance. Light sampling retains it under occlusion.
-    // Zero means no distance was recorded. Infinite lights use settings.MaxDistance.
+    // World-space guide distance. EvaluateDirectLightingSample records the light
+    // distance even under occlusion. Zero means no distance was recorded.
     float HitDistance;
 };
 

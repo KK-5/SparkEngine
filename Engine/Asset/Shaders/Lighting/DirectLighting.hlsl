@@ -112,7 +112,7 @@ PSOutput PSMain(VSOutput input)
     DirectLightingMaterialFactors(gbuffer.DiffuseColor, gbuffer.SpecularColor, diffuseFactor, specularFactor);
     // Distances are raw world-space guides: no PDF/MIS weighting, averaging or
     // material factor. Preserve zero for absent distances and cap infinity.
-    const float diffuseHitDistance = min(lighting.LightSampleDistance, 65504.0);
+    const float diffuseHitDistance = min(lighting.DiffuseHitDistance, 65504.0);
     const float specularHitDistance = min(lighting.SpecularHitDistance, 65504.0);
     output.Diffuse = float4(lighting.Diffuse / diffuseFactor, diffuseHitDistance);
     output.Specular = float4(lighting.Specular / specularFactor, specularHitDistance);

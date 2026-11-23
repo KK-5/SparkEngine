@@ -10,7 +10,7 @@ struct DirectLightingEstimate
     float3 Diffuse;
     float3 Specular;
     // World-space distances without denoiser packing.
-    float LightSampleDistance; // zero for invalid light samples; retained when occluded
+    float DiffuseHitDistance; // receiver to the occluder or to the visible light sample
     float SpecularHitDistance; // selected by the luminance of each technique's specular contribution
 };
 
@@ -92,11 +92,19 @@ DirectLightingSample EvaluateDirectLightingLightSample(GeometrySurface surface, 
     {
         return result;
     }
-    result.HitDistance = lightSample.IsInfinite ? settings.MaxDistance : lightSample.Distance;
-    if (!TraceSampledLightVisibility(surface, lightSample, settings, shadowOriginOffset))
+    RayDesc shadowRay;
+    if (MakeSampledLightShadowRay(surface, lightSample, settings, shadowOriginOffset, shadowRay))
     {
-        return result;
+        RayTracingHit occluder;
+        if (TraceClosestOpaqueTriangle(shadowRay, settings.InstanceMask, occluder))
+        {
+            // Measure from the original receiver, before applying the shadow ray offsets.
+            const float3 toOccluder = (shadowRay.Origin - surface.WorldPosition) + shadowRay.Direction * occluder.T;
+            result.HitDistance = length(toOccluder);
+            return result;
+        }
     }
+    result.HitDistance = lightSample.IsInfinite ? settings.MaxDistance : lightSample.Distance;
 
     // Diffuse has no competing GGX estimate. BRDFResult already includes NoL.
     const float3 incident = lightSample.Radiance / lightPdf;
@@ -209,7 +217,7 @@ DirectLightingEstimate EvaluateDirectLightingMIS(GeometrySurface surface, RayTra
     DirectLightingEstimate result;
     result.Diffuse = lightSample.Diffuse;
     result.Specular = lightSample.Specular + ggxSample.Specular;
-    result.LightSampleDistance = lightSample.HitDistance;
+    result.DiffuseHitDistance = lightSample.HitDistance;
 
     // Weight the choice by MIS contributions and forward the selected distance in world units.
     const float3 luminanceWeights = float3(0.2126, 0.7152, 0.0722);

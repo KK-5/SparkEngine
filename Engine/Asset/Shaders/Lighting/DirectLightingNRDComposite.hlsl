@@ -13,6 +13,9 @@ Texture2D<float4> g_NRDDiffuse : register(t4, space2);
 Texture2D<float4> g_NRDSpecular : register(t5, space2);
 Texture2D<float> g_LightingViewZ : register(t6, space2);
 
+// Show raw direct lighting on the left and REBLUR on the right when enabled.
+static const bool kCompareRawAndDenoisedLighting = false;
+
 float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
 {
     return DirectLightingFullscreenPosition(vertexId);
@@ -25,7 +28,8 @@ float4 PSMain(float4 position : SV_Position) : SV_Target0
 
     // REBLUR can leave pixels outside the active rect or denoising range unwritten.
     [branch]
-    if (all(uint2(pixel) < g_Scope.nrdRectSize)
+    if ((!kCompareRawAndDenoisedLighting || uint(pixel.x) >= g_Scope.nrdRectSize.x / 2u)
+        && all(uint2(pixel) < g_Scope.nrdRectSize)
         && g_LightingViewZ.Load(location) < g_Scope.nrdDenoisingRange)
     {
         const float3 diffuse = REBLUR_BackEnd_UnpackRadianceAndNormHitDist(g_NRDDiffuse.Load(location)).rgb;
