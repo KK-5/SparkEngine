@@ -106,6 +106,14 @@ namespace Spark::Light
                 rd.m_halfHeight = RectHalfExtent(lc.m_height, xform.m_worldMatrix[1]);
                 rd.m_intensity  = lc.m_intensity / (4.0f * rd.m_halfWidth * rd.m_halfHeight);
             }
+            else if (rd.m_type == LightType::Directional && lc.m_sourceAngleDeg > 0.0f)
+            {
+                rd.m_worldRight = ExtractRight(xform.m_worldMatrix, rd.m_worldDirection);
+                // Avoid cancellation in 1 - cos(halfAngle) for small angular diameters.
+                const float quarterAngle = Math::Radians(eastl::min(lc.m_sourceAngleDeg, 180.0f)) * 0.25f;
+                const float sine = Math::Sin(quarterAngle);
+                rd.m_directionalConeHeight = 2.0f * sine * sine;
+            }
 
             rd.m_castShadow         = lc.m_castShadow;
             rd.m_shadowBias         = lc.m_shadowBias;

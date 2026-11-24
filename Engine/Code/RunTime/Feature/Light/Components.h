@@ -46,6 +46,7 @@ namespace Spark::Light
         float         m_range     = 10.0f;    // point/spot falloff radius (world units)
         float         m_innerConeDeg = 20.0f; // spot inner cone half-angle
         float         m_outerConeDeg = 30.0f; // spot outer cone half-angle
+        float         m_sourceAngleDeg = 0.0f; // directional RT: angular diameter, zero is delta
 
         //! RECT ONLY, world units before the Transform's scale: the emitter's size is these
         //! times the scale of the entity's x / y axes, and m_intensity is spread over that
@@ -92,9 +93,9 @@ namespace Spark::Light
         float         m_range     = 10.0f;
         float         m_cosInner  = 1.0f;   // cos(inner cone), spot
         float         m_cosOuter  = 1.0f;   // cos(outer cone), spot
+        float         m_directionalConeHeight = 0.0f; // 1 - cos(source half-angle)
 
-        //! Rect only. Unit, perpendicular to m_worldDirection; the up axis is their cross
-        //! product and is not carried, so a mirrored transform cannot flip the winding.
+        //! Rect or directional emitter frame. Unit and perpendicular to m_worldDirection.
         Math::Vector3 m_worldRight      {1.0f, 0.0f, 0.0f};
         float         m_halfWidth  = 0.5f;  // world units, scale already applied
         float         m_halfHeight = 0.5f;

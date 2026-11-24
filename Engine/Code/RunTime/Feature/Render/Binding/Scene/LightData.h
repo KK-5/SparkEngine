@@ -31,7 +31,7 @@ namespace Spark::Render
         //! owns its row, which reads as unshadowed.
         uint32_t      m_shadowMapCount = 1;
 
-        //! Rect: unit right axis. Up is cross(m_direction, m_right) in the shader.
+        //! Rect or directional emitter: unit right axis perpendicular to m_direction.
         Math::Vector3 m_right;
 
         //! ShadowMask slot, granted per frame by ShadowMaskSystem; -1 = sample no mask.
@@ -45,8 +45,8 @@ namespace Spark::Render
         //! Authoring switch, independent of shadow-map allocation. 0 skips RT visibility.
         uint32_t      m_castShadow = 1;
 
-        //! To the next 16B boundary, and where the next field goes.
-        uint32_t      m_padding = 0;
+        //! Directional emitter: 1 - cos(source half-angle).
+        float         m_directionalConeHeight = 0.0f;
     };
 
     // 96B. StructuredBuffer elements are tightly C-packed, so sizeof must match the HLSL

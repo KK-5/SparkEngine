@@ -40,6 +40,8 @@ namespace Spark::Light
                 .Traits(MetaFieldTraits::Serializable)
             .Data<&LightComponent::m_outerConeDeg>("Outer Cone Degrees").Custom<Spark::FloatElement>(0.f, 90.f, 0.5f)
                 .Traits(MetaFieldTraits::Serializable)
+            .Data<&LightComponent::m_sourceAngleDeg>("Directional Source Angle Degrees").Custom<Spark::FloatElement>(0.f, 180.f, 0.1f, "%.2f")
+                .Traits(MetaFieldTraits::Serializable)
             .Data<&LightComponent::m_width>("Width").Custom<Spark::FloatElement>(0.01f, 100.f, 0.01f)
                 .Traits(MetaFieldTraits::Serializable)
             .Data<&LightComponent::m_height>("Height").Custom<Spark::FloatElement>(0.01f, 100.f, 0.01f)

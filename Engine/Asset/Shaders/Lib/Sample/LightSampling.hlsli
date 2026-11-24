@@ -2,6 +2,7 @@
 #define SPARK_LIB_LIGHT_SAMPLING_HLSLI
 
 #include <Shaders/SceneBindings.hlsli>
+#include <Shaders/Lib/BRDF/Constants.hlsli>
 #include <Shaders/Lib/LightRadiance.hlsli>
 #include <Shaders/Lib/Geometry/GeometrySurface.hlsli>
 #include <Shaders/Material/MaterialTemplate.hlsli>
@@ -26,8 +27,8 @@ struct LightSampleLocation
 {
     LightReference Light;
     uint PrimitiveIndex; // emissive mesh only
-    // Mesh: barycentric weights 1,2. Rect: uniform square coordinates [0,1)^2.
-    // Point/spot/directional: unused.
+    // Mesh: barycentric weights 1,2. Rect / directional cone: uniform coordinates [0,1)^2.
+    // Delta lights: unused.
     float2 Coordinates;
 };
 
@@ -51,7 +52,7 @@ struct LightSample
     float3 Direction; // unit vector from receiver to emitter
     float Distance;
     float3 Radiance; // unoccluded; no BRDF or receiver cosine included
-    // Conditional on selecting Location.Light. Area lights: solid-angle density,
+    // Conditional on selecting Location.Light. Extended lights: solid-angle density,
     // including triangle selection for a mesh. Delta lights: discrete mass 1.
     // Multiply by the light-selection PMF exactly once in the estimator.
     float Pdf;
@@ -177,8 +178,22 @@ bool EvaluateLightSampleGeometry(LightSamplingContext context, LightSampleLocati
             lightSample.Direction = DirectionToLight(light, context.WorldPosition);
             lightSample.Distance = LIGHT_INFINITE_DISTANCE;
             lightSample.Pdf = 1.0;
-            lightSample.IsDelta = true;
+            // A numerically negligible cone can use the delta limit.
+            lightSample.IsDelta = light.directionalConeHeight <= 1e-12;
             lightSample.IsInfinite = true;
+            if (!lightSample.IsDelta)
+            {
+                // Uniform in solid angle: sample cos(theta) uniformly over the cap.
+                const float oneMinusCosTheta = location.Coordinates.x * light.directionalConeHeight;
+                const float sinTheta = sqrt(oneMinusCosTheta * (2.0 - oneMinusCosTheta));
+                float sinPhi, cosPhi;
+                sincos(2.0 * PI * location.Coordinates.y, sinPhi, cosPhi);
+                const float3 axis = lightSample.Direction;
+                const float3 up = cross(axis, light.right);
+                lightSample.Direction = normalize(axis * (1.0 - oneMinusCosTheta)
+                    + (light.right * cosPhi + up * sinPhi) * sinTheta);
+                lightSample.Pdf = rcp(2.0 * PI * light.directionalConeHeight);
+            }
             return true;
         }
         else if (light.type == 1u || light.type == 2u)
@@ -284,6 +299,12 @@ bool ReconstructLightSample(LightSamplingContext context, LightSampleLocation lo
             // Area-to-solid-angle conversion already accounts for distance falloff.
             lightSample.Radiance = light.color * light.intensity
                 * EvaluateLightRangeWindow(light, context.WorldPosition);
+        }
+        else if (light.type == 0u && !lightSample.IsDelta)
+        {
+            // Preserve irradiance on a surface facing the cone axis as its size varies.
+            const float meanCosine = 1.0 - 0.5 * light.directionalConeHeight;
+            lightSample.Radiance = light.color * light.intensity * (lightSample.Pdf / meanCosine);
         }
         else
         {

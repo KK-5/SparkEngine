@@ -13,10 +13,10 @@ struct LightData
     float  cosInner;  float cosOuter;                 // spot cone
     int    shadowIndex;                               // first shadow map and g_ShadowViews row; -1 = none
     uint   shadowMapCount;                            // >1 adds a cube face index to it
-    float3 right;     int   shadowMaskIndex;          // rect unit right axis; ShadowMask slot, -1 = none
+    float3 right;     int   shadowMaskIndex;          // rect/directional right axis; ShadowMask slot, -1 = none
     float  halfWidth; float halfHeight;               // rect, world units
     uint   castShadow;                               // authoring switch, independent of shadow-map allocation
-    uint   padding;
+    float  directionalConeHeight;                    // 1 - cos(source half-angle)
 };
 
 #endif // SPARK_LIGHT_DATA_HLSLI
