@@ -101,11 +101,10 @@ PSOutput PSMain(VSOutput input)
     // components reused from light selection/shape; seeds stay fixed per pixel.
     const float4 lightRandomSample = SobolBurley4D(view.frameNumber, 0u, seed);
     const float2 ggxRandomSample = SobolBurley2D(view.frameNumber, 1u, seed);
-    const float hitDistanceRandomSample = SobolBurley1D(view.frameNumber, 2u, seed);
     const float3 shadowOriginOffset = g_GBufferShadowOriginOffset.Load(int3(pixel, 0)).xyz;
     const DirectLightingEstimate lighting = EvaluateDirectLightingMIS(surface, material, V, context,
         g_LightWeightTree, g_Scope.lightWeightTreeLeafBase, lightRandomSample, ggxRandomSample,
-        hitDistanceRandomSample, g_MaterialSampler, settings, shadowOriginOffset);
+        g_MaterialSampler, settings, shadowOriginOffset);
 
     float3 diffuseFactor;
     float3 specularFactor;

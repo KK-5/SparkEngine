@@ -11,7 +11,7 @@ struct DirectLightingEstimate
     float3 Specular;
     // World-space distances without denoiser packing.
     float DiffuseHitDistance; // receiver to the occluder or to the visible light sample
-    float SpecularHitDistance; // selected by the luminance of each technique's specular contribution
+    float SpecularHitDistance; // first event along the GGX direction, or the ray limit on a miss
 };
 
 // GGX emitter discovery uses this original-receiver ray. Offsetting it would
@@ -133,21 +133,14 @@ DirectLightingSample EvaluateDirectLightingLightSample(GeometrySurface surface, 
 
 // One sampled direction may see several nonblocking analytic emitters. Every
 // emitter uses its own light-selection PMF and conditional solid-angle density.
-void AccumulateDirectLightingGGXContribution(inout DirectLightingSample result, float3 specular, float ggxPdf,
-    LightSamplingContext context, LightSample lightSample, float emitterDistance,
-    StructuredBuffer<float> weightTree, uint leafBase)
+float3 EvaluateDirectLightingGGXContribution(float3 specular, float ggxPdf,
+    LightSamplingContext context, LightSample lightSample, StructuredBuffer<float> weightTree, uint leafBase)
 {
     const float lightPdf = EvaluateLightPdf(context, lightSample.Location, weightTree, leafBase);
     const float weight = MISPowerHeuristic(ggxPdf, lightPdf);
-    const float3 contribution = specular * lightSample.Radiance * (weight / ggxPdf);
-    result.Specular += contribution;
-    if (any(contribution > 0.0))
-    {
-        result.HitDistance = result.HitDistance == 0.0 ? emitterDistance : min(result.HitDistance, emitterDistance);
-    }
+    return specular * lightSample.Radiance * (weight / ggxPdf);
 }
 
-// Zero hit distance means this direction found no contributing emitter.
 DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, RayTracingMaterial material,
     float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
     float2 randomSample, SamplerState materialSampler, RayTracingLightingSettings settings, float3 shadowOriginOffset)
@@ -167,9 +160,12 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
     }
     const BRDFResult brdf = EvaluateRayTracingBRDF(material, V, direction);
     const RayDesc ray = MakeDirectLightingGGXRay(surface, direction, settings);
+    result.HitDistance = ray.TMax;
     RayTracingHit hit;
     if (TraceClosestOpaqueTriangle(ray, settings.InstanceMask, hit))
     {
+        // Keep the geometry distance even when the hit contributes no radiance.
+        result.HitDistance = hit.T;
         LightSample meshSample;
         if (any(brdf.Specular > 0.0)
             && ReconstructEmissiveLightSample(context, hit, materialSampler, meshSample))
@@ -178,8 +174,8 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
             // Re-aim the corrected shadow ray at the same point, matching NEE.
             if (TraceSampledLightVisibility(surface, meshSample, settings, shadowOriginOffset))
             {
-                AccumulateDirectLightingGGXContribution(
-                    result, brdf.Specular, ggxPdf, context, meshSample, hit.T, weightTree, leafBase);
+                result.Specular += EvaluateDirectLightingGGXContribution(
+                    brdf.Specular, ggxPdf, context, meshSample, weightTree, leafBase);
             }
         }
     }
@@ -194,20 +190,21 @@ DirectLightingSample EvaluateDirectLightingGGXSample(GeometrySurface surface, Ra
     while (QueryNextVisibleRectLight(surface, context, ray, materialSampler,
         settings, shadowOriginOffset, nextLightIndex, rectSample))
     {
-        AccumulateDirectLightingGGXContribution(
-            result, brdf.Specular, ggxPdf, context, rectSample, rectSample.Distance, weightTree, leafBase);
+        result.Specular += EvaluateDirectLightingGGXContribution(
+            brdf.Specular, ggxPdf, context, rectSample, weightTree, leafBase);
+        result.HitDistance = min(result.HitDistance, rectSample.Distance);
     }
     return result;
 }
 
-// Caller supplies independent uniform random dimensions for light selection/shape,
-// GGX VNDF, and specular hit distance selection. Sum the two specular estimates
-// without dividing by two. No diffuse GGX estimate.
+// Caller supplies independent uniform random dimensions for light selection/shape
+// and GGX VNDF. Sum the two specular estimates without dividing by two.
+// No diffuse GGX estimate.
 // context.WorldPosition must equal surface.WorldPosition before shadow offsets.
 // Settings require 0 < RayBias < MaxDistance.
 DirectLightingEstimate EvaluateDirectLightingMIS(GeometrySurface surface, RayTracingMaterial material,
     float3 V, LightSamplingContext context, StructuredBuffer<float> weightTree, uint leafBase,
-    float4 lightRandomSample, float2 ggxRandomSample, float hitDistanceRandomSample, SamplerState materialSampler,
+    float4 lightRandomSample, float2 ggxRandomSample, SamplerState materialSampler,
     RayTracingLightingSettings settings, float3 shadowOriginOffset)
 {
     const DirectLightingSample lightSample = EvaluateDirectLightingLightSample(surface, material, V, context,
@@ -218,17 +215,7 @@ DirectLightingEstimate EvaluateDirectLightingMIS(GeometrySurface surface, RayTra
     result.Diffuse = lightSample.Diffuse;
     result.Specular = lightSample.Specular + ggxSample.Specular;
     result.DiffuseHitDistance = lightSample.HitDistance;
-
-    // Weight the choice by MIS contributions and forward the selected distance in world units.
-    const float3 luminanceWeights = float3(0.2126, 0.7152, 0.0722);
-    const float lightWeight = max(0.0, dot(lightSample.Specular, luminanceWeights));
-    const float ggxWeight = max(0.0, dot(ggxSample.Specular, luminanceWeights));
     result.SpecularHitDistance = ggxSample.HitDistance;
-    if (lightWeight > 0.0
-        && (ggxWeight == 0.0 || hitDistanceRandomSample * (lightWeight + ggxWeight) < lightWeight))
-    {
-        result.SpecularHitDistance = lightSample.HitDistance;
-    }
     return result;
 }
 
