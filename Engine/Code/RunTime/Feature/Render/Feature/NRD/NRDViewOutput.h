@@ -13,7 +13,7 @@ namespace Spark::Render
         inline const RHI::AttachmentId Specular("NRDSpecularOutput");
     }
 
-    //! Published on the main view for frames that declare the REBLUR outputs.
+    //! Published on the main view for frames that declare NRD outputs.
     struct NRDViewOutput
     {
         eastl::array<uint32_t, 2> m_rectSize;

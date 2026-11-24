@@ -2,7 +2,7 @@
 
 #if SPARK_WITH_NRD
 #include "NRDInputPass.h"
-#include "NRDReblurConstants.h"
+#include "NRDRelaxConstants.h"
 #include "NRDViewOutput.h"
 
 #include <math.h>
@@ -39,7 +39,7 @@ namespace Spark::Render
     namespace
     {
         constexpr nrd::Identifier kDenoiserId = 1;
-        constexpr float kHistoryTimeSeconds = 0.10f;
+        const float kHistoryTimeSeconds = nrd::RELAX_DEFAULT_ACCUMULATION_TIME;
         constexpr float kFrameTimeSmoothingSeconds = 0.20f;
         constexpr auto kQueue = RHI::HardwareQueueClass::Graphics;
         constexpr auto kTextureBindFlags = RHI::ImageBindFlags::ShaderReadWrite;
@@ -55,21 +55,24 @@ namespace Spark::Render
         const RHI::InputName kTextures("NRDTextures");
         const RHI::InputName kStorageTextures("NRDStorageTextures");
 
-        enum class ReblurStage : uint8_t
+        enum class RelaxStage : uint8_t
         {
-            ClassifyTiles, PrePass, TemporalAccumulation, HistoryFix, Blur, PostBlur, TemporalStabilization, Count
+            ClassifyTiles, PrePass, TemporalAccumulation, HistoryFix, HistoryClamping,
+            Copy, AntiFirefly, AtrousSmem, Atrous, Count
         };
 
-        constexpr size_t StageIndex(ReblurStage stage) { return static_cast<size_t>(stage); }
-        constexpr size_t kReblurStageCount = StageIndex(ReblurStage::Count);
-        const eastl::array<eastl::string_view, kReblurStageCount> kReblurShaders{
-            "REBLUR_ClassifyTiles.cs.hlsl",
-            "REBLUR_PrePass.cs.hlsl",
-            "REBLUR_TemporalAccumulation.cs.hlsl",
-            "REBLUR_HistoryFix.cs.hlsl",
-            "REBLUR_Blur.cs.hlsl",
-            "REBLUR_PostBlur.cs.hlsl",
-            "REBLUR_TemporalStabilization.cs.hlsl",
+        constexpr size_t StageIndex(RelaxStage stage) { return static_cast<size_t>(stage); }
+        constexpr size_t kRelaxStageCount = StageIndex(RelaxStage::Count);
+        const eastl::array<eastl::string_view, kRelaxStageCount> kRelaxShaders{
+            "RELAX_ClassifyTiles.cs.hlsl",
+            "RELAX_PrePass.cs.hlsl",
+            "RELAX_TemporalAccumulation.cs.hlsl",
+            "RELAX_HistoryFix.cs.hlsl",
+            "RELAX_HistoryClamping.cs.hlsl",
+            "RELAX_Copy.cs.hlsl",
+            "RELAX_AntiFirefly.cs.hlsl",
+            "RELAX_AtrousSmem.cs.hlsl",
+            "RELAX_Atrous.cs.hlsl",
         };
 
         struct ClearField
@@ -104,6 +107,13 @@ namespace Spark::Render
 
         Ptr<RHI::PipelineLayoutDescriptor> CreatePipelineLayout(RHI::Factory& factory, const nrd::InstanceDesc& instance)
         {
+            if (instance.constantBufferMaxDataSize != NRDRelax::kConstantBufferSize)
+            {
+                LOG_ERROR("[NRDSystem] Expected {} bytes of RELAX constants, got {}.",
+                    NRDRelax::kConstantBufferSize, instance.constantBufferMaxDataSize);
+                return nullptr;
+            }
+
             uint32_t maxSrvs = 0;
             uint32_t maxUavs = 0;
             for (uint32_t i = 0; i < instance.pipelinesNum; ++i)
@@ -144,13 +154,11 @@ namespace Spark::Render
                     RHI::ShaderInputImageType::Image2D, maxUavs, instance.resourcesBaseRegisterIndex,
                     instance.resourcesSpaceIndex).m_stageMask = RHI::ShaderStageMask::Compute;
             }
-            uint32_t offset = 0;
-            for (const auto& field : NRDReblur::kSharedFields)
+            for (const auto& field : NRDRelax::kFields)
             {
-                inputs.m_constants.emplace_back(RHI::InputName(field.m_name), offset, field.m_byteCount,
+                inputs.m_constants.emplace_back(RHI::InputName(field.m_name), field.m_byteOffset, field.m_byteCount,
                     instance.constantBufferRegisterIndex, instance.constantBufferAndSamplersSpaceIndex)
                     .m_stageMask = RHI::ShaderStageMask::Compute;
-                offset += field.m_byteCount;
             }
 
             auto layout = factory.CreatePipelineLayoutDescriptor();
@@ -439,14 +447,14 @@ namespace Spark::Render
 
         RHI::Factory& m_factory;
         UniquePtr<nrd::Instance, DestroyInstance> m_instance;
-        nrd::ReblurSettings m_reblurSettings;
+        nrd::RelaxSettings m_relaxSettings;
         Ptr<Resource::ShaderAsset> m_inputShader;
         RHI::Format m_normalRoughnessFormat = RHI::Format::Unknown;
         Ptr<RHI::PipelineLayoutDescriptor> m_layout;
         Ptr<RHI::PipelineLayoutDescriptor> m_clearLayout;
         eastl::vector<Ptr<RHI::PipelineState>> m_pipelines;
         eastl::array<uint32_t, kClearTypeCount> m_clearPipelines{ kInvalidPipeline, kInvalidPipeline };
-        eastl::array<uint32_t, kReblurStageCount> m_reblurPipelines;
+        eastl::array<uint32_t, kRelaxStageCount> m_relaxPipelines;
         Ptr<RHI::ImagePool> m_permanentPool;
         UniquePtr<FrameTextures> m_textures;
         // SDK-owned dispatch data is valid until the next GetComputeDispatches call.
@@ -456,7 +464,7 @@ namespace Spark::Render
         float m_smoothedFrameTime = 1.0f / 60.0f;
 
         void BuildClear(ClearType type, ComputePassScopes& pass);
-        void BuildReblur(ReblurStage stage, ComputePassScopes& pass);
+        void BuildRelax(RelaxStage stage, ComputePassScopes& pass);
     };
 
     void NRDSystem::State::BuildClear(ClearType type, ComputePassScopes& pass)
@@ -482,20 +490,20 @@ namespace Spark::Render
         }
     }
 
-    void NRDSystem::State::BuildReblur(ReblurStage stage, ComputePassScopes& pass)
+    void NRDSystem::State::BuildRelax(RelaxStage stage, ComputePassScopes& pass)
     {
         if (m_dispatches.empty())
         {
             return;
         }
-        if (stage == ReblurStage::ClassifyTiles)
+        if (stage == RelaxStage::ClassifyTiles)
         {
             // Earlier Clear scopes resolve these names when the graph links attachments.
             m_textures->Declare(pass);
         }
 
         const auto& desc = *nrd::GetInstanceDesc(*m_instance);
-        const uint32_t pipeline = m_reblurPipelines[StageIndex(stage)];
+        const uint32_t pipeline = m_relaxPipelines[StageIndex(stage)];
         const auto& constantInputs =
             m_layout->FindSpaceGroupBySpaceId(desc.constantBufferAndSamplersSpaceIndex)->m_shaderInputs;
         for (const auto& dispatch : m_dispatches)
@@ -520,14 +528,7 @@ namespace Spark::Render
                 else
                 {
                     const ShaderInputBinding binding{ desc.resourcesSpaceIndex, kStorageTextures, uavIndex++ };
-                    if (resource.type == nrd::ResourceType::IN_MV)
-                    {
-                        scope.ReadWriteImage(attachment).Bind(binding);
-                    }
-                    else
-                    {
-                        scope.WriteImage(attachment).Bind(binding);
-                    }
+                    scope.WriteImage(attachment).Bind(binding);
                 }
             }
 
@@ -556,7 +557,7 @@ namespace Spark::Render
         const auto& library = *nrd::GetLibraryDesc();
         if (library.versionMajor != 4 || library.versionMinor != 18 || library.versionBuild != 0)
         {
-            LOG_ERROR("[NRDSystem] Expected NRD 4.18.0 for the REBLUR constant layout, got {}.{}.{}.",
+            LOG_ERROR("[NRDSystem] Expected NRD 4.18.0, got {}.{}.{}.",
                 static_cast<unsigned>(library.versionMajor), static_cast<unsigned>(library.versionMinor),
                 static_cast<unsigned>(library.versionBuild));
             return;
@@ -575,7 +576,7 @@ namespace Spark::Render
             return;
         }
 
-        const nrd::DenoiserDesc denoiser{ kDenoiserId, nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR };
+        const nrd::DenoiserDesc denoiser{ kDenoiserId, nrd::Denoiser::RELAX_DIFFUSE_SPECULAR };
         nrd::InstanceCreationDesc creation{};
         creation.denoisers = &denoiser;
         creation.denoisersNum = 1;
@@ -588,7 +589,7 @@ namespace Spark::Render
         }
 
         state->m_instance.reset(instance);
-        const auto settingsResult = nrd::SetDenoiserSettings(*instance, kDenoiserId, &state->m_reblurSettings);
+        const auto settingsResult = nrd::SetDenoiserSettings(*instance, kDenoiserId, &state->m_relaxSettings);
         if (settingsResult != nrd::Result::SUCCESS)
         {
             LOG_ERROR("[NRDSystem] SetDenoiserSettings failed ({}).", static_cast<unsigned>(settingsResult));
@@ -603,7 +604,7 @@ namespace Spark::Render
             return;
         }
         state->m_pipelines.reserve(desc.pipelinesNum);
-        state->m_reblurPipelines.fill(kInvalidPipeline);
+        state->m_relaxPipelines.fill(kInvalidPipeline);
         for (uint32_t i = 0; i < desc.pipelinesNum; ++i)
         {
             const auto& pipeline = desc.pipelines[i];
@@ -622,12 +623,10 @@ namespace Spark::Render
             {
                 const eastl::string_view identifier = pipeline.shaderIdentifier;
                 const auto shader = identifier.substr(0, identifier.find('|'));
-                const auto stage = eastl::find(kReblurShaders.begin(), kReblurShaders.end(), shader);
-                if (stage != kReblurShaders.end()
-                    && (shader != kReblurShaders[StageIndex(ReblurStage::PostBlur)]
-                        || identifier.find("|TEMPORAL_STABILIZATION=1") != eastl::string_view::npos))
+                const auto stage = eastl::find(kRelaxShaders.begin(), kRelaxShaders.end(), shader);
+                if (stage != kRelaxShaders.end())
                 {
-                    state->m_reblurPipelines[stage - kReblurShaders.begin()] = i;
+                    state->m_relaxPipelines[stage - kRelaxShaders.begin()] = i;
                 }
             }
             state->m_pipelines.push_back(eastl::move(pso));
@@ -638,11 +637,11 @@ namespace Spark::Render
             LOG_ERROR("[NRDSystem] The SDK is missing a Clear shader variant.");
             return;
         }
-        for (size_t stage = 0; stage < kReblurStageCount; ++stage)
+        for (size_t stage = 0; stage < kRelaxStageCount; ++stage)
         {
-            if (state->m_reblurPipelines[stage] == kInvalidPipeline)
+            if (state->m_relaxPipelines[stage] == kInvalidPipeline)
             {
-                LOG_ERROR("[NRDSystem] The SDK is missing the pipeline for {}.", kReblurShaders[stage].data());
+                LOG_ERROR("[NRDSystem] The SDK is missing the pipeline for {}.", kRelaxShaders[stage].data());
                 return;
             }
         }
@@ -657,7 +656,7 @@ namespace Spark::Render
             return;
         }
 
-        LOG_INFO("[NRDSystem] Initialized REBLUR_DIFFUSE_SPECULAR with {} PSOs, {} permanent textures, "
+        LOG_INFO("[NRDSystem] Initialized RELAX_DIFFUSE_SPECULAR with {} PSOs, {} permanent textures, "
             "{} transient textures and a {}-byte maximum constant buffer.",
             desc.pipelinesNum, desc.permanentPoolSize, desc.transientPoolSize, desc.constantBufferMaxDataSize);
         m_state = eastl::move(state);
@@ -684,25 +683,25 @@ namespace Spark::Render
             .Build([this](ComputePassScopes& pass) { m_state->BuildClear(ClearType::Uint, pass); })
             .Finalize();
 
-        const auto& hitDistance = m_state->m_reblurSettings.hitDistanceParameters;
-        NRDInputPass::SetUp(passes, m_state->m_inputShader, m_state->m_normalRoughnessFormat,
-            { hitDistance.A, hitDistance.B, hitDistance.C });
+        NRDInputPass::SetUp(passes, m_state->m_inputShader, m_state->m_normalRoughnessFormat);
 
-        const auto registerStage = [this](auto builder, ReblurStage stage)
+        const auto registerStage = [this](auto builder, RelaxStage stage)
         {
-            const auto pipeline = m_state->m_reblurPipelines[StageIndex(stage)];
+            const auto pipeline = m_state->m_relaxPipelines[StageIndex(stage)];
             builder.Queue(kQueue)
                 .ImportPipeline(m_state->m_pipelines[pipeline], PassPipelineLayout{ m_state->m_layout, {} })
-                .Build([this, stage](ComputePassScopes& pass) { m_state->BuildReblur(stage, pass); })
+                .Build([this, stage](ComputePassScopes& pass) { m_state->BuildRelax(stage, pass); })
                 .Finalize();
         };
-        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurClassifyTiles"), ReblurStage::ClassifyTiles);
-        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurPrePass"), ReblurStage::PrePass);
-        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurTemporalAccumulation"), ReblurStage::TemporalAccumulation);
-        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurHistoryFix"), ReblurStage::HistoryFix);
-        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurBlur"), ReblurStage::Blur);
-        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurPostBlur"), ReblurStage::PostBlur);
-        registerStage(SPARK_COMPUTE_PASS(passes, "NRDReblurTemporalStabilization"), ReblurStage::TemporalStabilization);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxClassifyTiles"), RelaxStage::ClassifyTiles);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxPrePass"), RelaxStage::PrePass);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxTemporalAccumulation"), RelaxStage::TemporalAccumulation);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxHistoryFix"), RelaxStage::HistoryFix);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxHistoryClamping"), RelaxStage::HistoryClamping);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxCopy"), RelaxStage::Copy);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxAntiFirefly"), RelaxStage::AntiFirefly);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxAtrousSmem"), RelaxStage::AtrousSmem);
+        registerStage(SPARK_COMPUTE_PASS(passes, "NRDRelaxAtrous"), RelaxStage::Atrous);
     }
 
     void NRDSystem::PrepareFrame(RHI::RHIContext& rhiContext, const FrameTime& time)
@@ -777,16 +776,17 @@ namespace Spark::Render
         const float smoothedFrameTime = restart ? frameTime
             : state.m_smoothedFrameTime + (frameTime - state.m_smoothedFrameTime) * smoothingWeight;
 
-        auto reblurSettings = state.m_reblurSettings;
-        reblurSettings.maxAccumulatedFrameNum = eastl::clamp(
+        auto relaxSettings = state.m_relaxSettings;
+        const uint32_t historyFrames = eastl::clamp(
             nrd::GetMaxAccumulatedFrameNum(kHistoryTimeSeconds, 1.0f / smoothedFrameTime),
-            uint32_t{ 1 }, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
-        const uint32_t fastHistoryFrames = reblurSettings.maxAccumulatedFrameNum / 5;
-        reblurSettings.maxFastAccumulatedFrameNum = fastHistoryFrames;
-        reblurSettings.historyFixFrameNum = eastl::min(reblurSettings.historyFixFrameNum,
-            fastHistoryFrames > 0 ? fastHistoryFrames - 1 : 0u);
-        reblurSettings.maxStabilizedFrameNum = reblurSettings.maxAccumulatedFrameNum;
-        result = nrd::SetDenoiserSettings(instance, kDenoiserId, &reblurSettings);
+            uint32_t{ 1 }, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
+        const uint32_t fastHistoryFrames = eastl::max(uint32_t{ 1 }, historyFrames / 5);
+        relaxSettings.diffuseMaxAccumulatedFrameNum = historyFrames;
+        relaxSettings.specularMaxAccumulatedFrameNum = historyFrames;
+        relaxSettings.diffuseMaxFastAccumulatedFrameNum = fastHistoryFrames;
+        relaxSettings.specularMaxFastAccumulatedFrameNum = fastHistoryFrames;
+        relaxSettings.historyFixFrameNum = eastl::min(relaxSettings.historyFixFrameNum, fastHistoryFrames - 1);
+        result = nrd::SetDenoiserSettings(instance, kDenoiserId, &relaxSettings);
         if (result != nrd::Result::SUCCESS)
         {
             LOG_ERROR("[NRDSystem] SetDenoiserSettings failed ({}).", static_cast<unsigned>(result));
@@ -798,7 +798,7 @@ namespace Spark::Render
         result = nrd::GetComputeDispatches(instance, &kDenoiserId, 1, dispatches, count);
         if (result != nrd::Result::SUCCESS || !dispatches || count == 0)
         {
-            LOG_ERROR("[NRDSystem] Could not prepare the REBLUR dispatches ({}).", static_cast<unsigned>(result));
+            LOG_ERROR("[NRDSystem] Could not prepare the RELAX dispatches ({}).", static_cast<unsigned>(result));
             return;
         }
 

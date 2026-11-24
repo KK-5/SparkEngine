@@ -13,7 +13,7 @@ Texture2D<float4> g_NRDDiffuse : register(t4, space2);
 Texture2D<float4> g_NRDSpecular : register(t5, space2);
 Texture2D<float> g_LightingViewZ : register(t6, space2);
 
-// Show raw direct lighting on the left and REBLUR on the right when enabled.
+// Show raw direct lighting on the left and RELAX on the right when enabled.
 static const bool kCompareRawAndDenoisedLighting = false;
 
 float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
@@ -26,14 +26,14 @@ float4 PSMain(float4 position : SV_Position) : SV_Target0
     const int2 pixel = int2(position.xy);
     const int3 location = int3(pixel, 0);
 
-    // REBLUR can leave pixels outside the active rect or denoising range unwritten.
+    // NRD can leave pixels outside the active rect or denoising range unwritten.
     [branch]
     if ((!kCompareRawAndDenoisedLighting || uint(pixel.x) >= g_Scope.nrdRectSize.x / 2u)
         && all(uint2(pixel) < g_Scope.nrdRectSize)
         && g_LightingViewZ.Load(location) < g_Scope.nrdDenoisingRange)
     {
-        const float3 diffuse = REBLUR_BackEnd_UnpackRadianceAndNormHitDist(g_NRDDiffuse.Load(location)).rgb;
-        const float3 specular = REBLUR_BackEnd_UnpackRadianceAndNormHitDist(g_NRDSpecular.Load(location)).rgb;
+        const float3 diffuse = RELAX_BackEnd_UnpackRadiance(g_NRDDiffuse.Load(location)).rgb;
+        const float3 specular = RELAX_BackEnd_UnpackRadiance(g_NRDSpecular.Load(location)).rgb;
         return CompositeDirectLighting(pixel, diffuse, specular, g_Scope.viewIndex);
     }
 

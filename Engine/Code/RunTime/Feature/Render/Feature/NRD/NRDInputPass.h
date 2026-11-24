@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Base.h>
-#include <EASTL/array.h>
 #include <RHI/Attachment/AttachmentEnums.h>
 #include <RHI/Format.h>
 
@@ -27,6 +26,6 @@ namespace Spark::Render
     {
         static Ptr<Resource::ShaderAsset> LoadShader();
         static void SetUp(PassContext& ctx, const Ptr<Resource::ShaderAsset>& shader,
-            RHI::Format normalRoughnessFormat, const eastl::array<float, 3>& hitDistanceParameters);
+            RHI::Format normalRoughnessFormat);
     };
 }

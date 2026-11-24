@@ -1,5 +1,6 @@
 #include "NRDInputPass.h"
 
+#include <EASTL/array.h>
 #include <Feature/SceneTextures/SceneTextures.h>
 #include <Log/ILogSystem.h>
 #include <Pass/ComputePass.h>
@@ -23,13 +24,13 @@ namespace Spark::Render
     }
 
     void NRDInputPass::SetUp(PassContext& ctx, const Ptr<Resource::ShaderAsset>& shader,
-        RHI::Format normalRoughnessFormat, const eastl::array<float, 3>& hitDistanceParameters)
+        RHI::Format normalRoughnessFormat)
     {
         namespace Signal = SceneTextures::DirectLighting;
         SPARK_COMPUTE_PASS(ctx, "NRDInputPass")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .ComputeShader(shader)
-            .Build([normalRoughnessFormat, hitDistanceParameters](ComputePassScopes& pass)
+            .Build([normalRoughnessFormat](ComputePassScopes& pass)
             {
                 const auto size = pass.GetRenderSize();
                 if (size.x <= 0 || size.y <= 0)
@@ -59,15 +60,12 @@ namespace Spark::Render
                 scope.ReadImage(Signal::DiffuseName()).Bind(RHI::InputName("g_RawDiffuse"));
                 scope.ReadImage(Signal::SpecularName()).Bind(RHI::InputName("g_RawSpecular"));
                 scope.ReadImage(Signal::NormalRoughnessName()).Bind(RHI::InputName("g_RawNormalRoughness"));
-                scope.ReadImage(Signal::ViewZName()).Bind(RHI::InputName("g_ViewZ"));
                 scope.ReadImage(Signal::MotionName()).Bind(RHI::InputName("g_RawMotion"));
                 scope.WriteImage(NRDInputs::Diffuse).Bind(RHI::InputName("g_Diffuse"));
                 scope.WriteImage(NRDInputs::Specular).Bind(RHI::InputName("g_Specular"));
                 scope.WriteImage(NRDInputs::NormalRoughness).Bind(RHI::InputName("g_NormalRoughness"));
                 scope.WriteImage(NRDInputs::Motion).Bind(RHI::InputName("g_Motion"));
                 scope.WriteImage(NRDInputs::HistoryConfidence).Bind(RHI::InputName("g_HistoryConfidence"));
-                scope.Constant(RHI::InputName("hitDistanceParameters"), eastl::array<float, 4>{
-                    hitDistanceParameters[0], hitDistanceParameters[1], hitDistanceParameters[2], 0.0f });
                 scope.Constant(RHI::InputName("inputSize"), eastl::array<uint32_t, 2>{ width, height });
                 scope.Dispatch(width, height);
                 scope.Close();
