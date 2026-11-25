@@ -123,7 +123,7 @@ DirectLightingSample EvaluateDirectLightingLightSample(GeometrySurface surface, 
     float ggxPdf = 0.0;
     if (SupportsDirectLightingGGXSample(lightSample, settings))
     {
-        ggxPdf = EvaluateGGXReflectionPdf(material.WorldNormal, V, lightSample.Direction,
+        ggxPdf = EvaluateGGXReflectionPdfV3(material.WorldNormal, V, lightSample.Direction,
             material.Inputs.Roughness);
     }
     const float weight = MISPowerHeuristic(lightPdf, ggxPdf);

@@ -75,6 +75,33 @@ float3 SampleGGXVisibleNormal(float3 localView, float perceptualRoughness, float
     return normalize(float3(alpha * hemisphereNormal.xy, max(0.0, hemisphereNormal.z)));
 }
 
+// GGX visible-normal sampling, bounded VNDF (v3):
+// Eto & Tokuyoshi 2023, "Bounded VNDF Sampling for Smith-GGX Reflections"
+// https://gpuopen.com/download/publications/Bounded_VNDF_Sampling_for_Smith-GGX_Reflections.pdf
+// Equivalent to NVIDIA MathLib's ML_VNDF_VERSION == 3.
+// localView: unit length, z > 0. perceptualRoughness: already regularized.
+// Returns a local HALF VECTOR, not a reflected direction.
+float3 SampleGGXVisibleNormalV3(float3 localView, float perceptualRoughness, float2 u)
+{
+    const float alpha = perceptualRoughness * perceptualRoughness;
+    const float a2    = alpha * alpha;
+
+    const float3 stretchedView = normalize(float3(alpha * localView.xy, localView.z));
+
+    const float s  = 1.0 + length(localView.xy);
+    const float s2 = s * s;
+    const float k  = (1.0 - a2) * s2 / (s2 + a2 * localView.z * localView.z);
+    const float b  = localView.z > 0.0 ? k * stretchedView.z : stretchedView.z;
+
+    const float z   = 1.0 - u.x * (1.0 + b);
+    const float r   = sqrt(saturate(1.0 - z * z));
+    const float phi = 2.0 * PI * u.y;
+
+    const float3 h = float3(r * cos(phi), r * sin(phi), z) + stretchedView;
+
+    return normalize(float3(alpha * h.xy, max(h.z, 1e-6)));
+}
+
 // World-space reflection-direction density for the GGX VNDF proposal alone.
 // N, V and L are unit vectors; V and L point away from the surface. The PDF is
 // with respect to solid angle, with no diffuse/specular selection probability.
@@ -101,6 +128,40 @@ float EvaluateGGXReflectionPdf(float3 N, float3 V, float3 L, float perceptualRou
     return D_GGX(NoH, alpha) / (2.0 * (NoV + smithRoot));
 }
 
+
+// World-space reflection-direction density for the GGX VNDF proposal alone.
+// v3: bounded VNDF (Eto & Tokuyoshi 2023) - must be paired with SampleGGXVisibleNormalV3.
+// N, V and L are unit vectors; V and L point away from the surface. The PDF is
+// with respect to solid angle, with no diffuse/specular selection probability.
+float EvaluateGGXReflectionPdfV3(float3 N, float3 V, float3 L, float perceptualRoughness)
+{
+    const float NoV = saturate(dot(N, V));
+    const float NoL = saturate(dot(N, L));
+    if (NoV <= 0.0 || NoL <= 0.0)
+        return 0.0;
+
+    perceptualRoughness = max(perceptualRoughness, BRDF_MIN_PERCEPTUAL_ROUGHNESS);
+    const float alpha        = perceptualRoughness * perceptualRoughness;
+    const float alphaSquared = alpha * alpha;
+
+    const float3 H   = normalize(V + L);
+    const float  NoH = saturate(dot(N, H));
+
+    // sin(V) and the Smith root (== "t" in MathLib's VNDF::GetPDF).
+    const float sinSqV    = saturate(1.0 - NoV * NoV);
+    const float sinV      = sqrt(sinSqV);
+    const float smithRoot = sqrt(NoV * NoV + alphaSquared * sinSqV);
+
+    // Bounded-VNDF factor: identical expression to the sampler's k.
+    //   s = 1 + sin(V),  k = (1 - α²)·s² / (s² + α²·NoV²)
+    const float s  = 1.0 + sinV;
+    const float s2 = s * s;
+    const float k  = (1.0 - alphaSquared) * s2 / (s2 + alphaSquared * NoV * NoV);
+
+    // p = D / (2 · (k·NoV + t))
+    return D_GGX(NoH, alpha) / (2.0 * (k * NoV + smithRoot));
+}
+
 // Samples a world-space reflected direction, not a half vector. N and V must be
 // normalized; randomSample is uniform in [0,1)^2. This proposes a direction only:
 // no BRDF value, material color, visibility or light contribution is evaluated.
@@ -120,7 +181,7 @@ bool SampleGGXReflection(float3 N, float3 V, float perceptualRoughness,
     float3 bitangent;
     BuildBRDFSamplingFrame(N, tangent, bitangent);
     const float3 localView = float3(dot(V, tangent), dot(V, bitangent), NoV);
-    const float3 halfVector = SampleGGXVisibleNormal(localView, perceptualRoughness, randomSample);
+    const float3 halfVector = SampleGGXVisibleNormalV3(localView, perceptualRoughness, randomSample);
     const float3 localDirection = reflect(-localView, halfVector);
     // VNDF reflection can land below the shading hemisphere. Keep it as a zero
     // contribution; retries would require renormalizing the direction PDF.
@@ -130,7 +191,7 @@ bool SampleGGXReflection(float3 N, float3 V, float perceptualRoughness,
     }
 
     const float3 L = normalize(localDirection.x * tangent + localDirection.y * bitangent + localDirection.z * N);
-    const float directionPdf = EvaluateGGXReflectionPdf(N, V, L, perceptualRoughness);
+    const float directionPdf = EvaluateGGXReflectionPdfV3(N, V, L, perceptualRoughness);
     if (directionPdf <= 0.0)
     {
         return false;
@@ -154,7 +215,7 @@ float EvaluateBRDFPdf(float3 N, float3 V, float3 L,
     }
 
     const float diffusePdf = NoL / PI;
-    const float specularPdf = EvaluateGGXReflectionPdf(N, V, L, perceptualRoughness);
+    const float specularPdf = EvaluateGGXReflectionPdfV3(N, V, L, perceptualRoughness);
     const float specularPmf = BRDFSpecularSelectionPmf(NoV, diffuseColor, F0);
     return (1.0 - specularPmf) * diffusePdf + specularPmf * specularPdf;
 }
