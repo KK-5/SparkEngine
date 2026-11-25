@@ -77,13 +77,16 @@ namespace Spark::Render
         }
 
         m_allocator = new Suballocator(device, StorageCapacityInBytes);
-        m_topLevelAllocation = m_allocator->Allocate(
-            AlignUp(sizes.m_resultSize, RHI::Alignment::AccelerationStructure), RHI::Alignment::AccelerationStructure);
-        if (!m_topLevelAllocation.IsValid())
+        const uint64_t topLevelSize = AlignUp(sizes.m_resultSize, RHI::Alignment::AccelerationStructure);
+        for (auto& allocation : m_topLevelAllocations)
         {
-            LOG_ERROR("[RayTracingSceneSystem] AS storage has no room for the TLAS.");
-            m_allocator.reset();
-            return;
+            allocation = m_allocator->Allocate(topLevelSize, RHI::Alignment::AccelerationStructure);
+            if (!allocation.IsValid())
+            {
+                LOG_ERROR("[RayTracingSceneSystem] AS storage has no room for both TLAS slots.");
+                Shutdown(rhiContext);
+                return;
+            }
         }
         m_topLevelBuildSizes = sizes;
 
@@ -120,12 +123,29 @@ namespace Spark::Render
             Shutdown(rhiContext);
             return;
         }
-        RayTracingScene scene;
-        scene.m_topLevelView = RHI::BufferViewDescriptor::CreateRaw(
-            static_cast<uint32_t>(m_topLevelAllocation.GetOffset()), static_cast<uint32_t>(m_topLevelAllocation.GetSize()));
-        rhiContext.Add<RayTracingScene>(m_storageResource, scene);
+        auto& scene = rhiContext.Add<RayTracingScene>(m_storageResource);
+        const auto& storageBuffer = *rhiContext.Get<RHI::Components::Buffer>(m_storageResource).m_buffer;
+        for (uint32_t slot = 0; slot < RayTracingScene::TopLevelSlotCount; ++slot)
+        {
+            const auto& allocation = m_topLevelAllocations[slot];
+            RHI::AccelerationStructureDescriptor descriptor;
+            descriptor.m_type = RHI::AccelerationStructureType::TopLevel;
+            descriptor.m_buffer = &storageBuffer;
+            descriptor.m_offset = allocation.GetOffset();
+            descriptor.m_size = allocation.GetSize();
+            auto& topLevel = scene.m_topLevels[slot];
+            topLevel.m_structure = Service<RHI::Factory>::Get()->CreateAccelerationStructure();
+            if (!topLevel.m_structure || topLevel.m_structure->Init(device, descriptor) != RHI::ResultCode::Success)
+            {
+                LOG_ERROR("[RayTracingSceneSystem] Failed to create TLAS slot {}.", slot);
+                Shutdown(rhiContext);
+                return;
+            }
+            topLevel.m_view = RHI::BufferViewDescriptor::CreateRaw(
+                static_cast<uint32_t>(allocation.GetOffset()), static_cast<uint32_t>(allocation.GetSize()));
+        }
 
-        // Only the location is published; the structure and its view stay in RayTracingScene.
+        // The build pass publishes the current slot as the shared shader input.
         rhiContext.Add<ShaderAccelerationStructureUsage>(m_storageResource,
             ShaderAccelerationStructureUsage{ ShaderInputBinding{
                 kRayTracingSpaceId, RHI::InputName(SharedInput::RayTracingScene), 0 } });
@@ -214,16 +234,10 @@ namespace Spark::Render
             {
                 auto& rhiContext = *RHI::RHIExecuteContext::Current();
                 auto& scene = rhiContext.Get<RayTracingScene>(m_storageResource);
-                const auto* topLevel = rhiContext.TryGet<AccelerationStructure>(m_storageResource);
-                if (topLevel == nullptr || topLevel->m_structure == nullptr)
-                {
-                    return;
-                }
 
                 p.Import(StorageName, m_storageResource);
                 p.Import(ScratchName, m_scratchResource);
                 p.Import(InstancesName, m_instanceResource);
-                const uint64_t topLevelScratchSize = AlignUp(m_topLevelBuildSizes.m_buildScratchSize, 4u);
 
                 if (!m_bottomLevelBuilds.empty())
                 {
@@ -256,17 +270,22 @@ namespace Spark::Render
                     scope.Close();
                 }
 
+                const uint64_t topLevelScratchSize = AlignUp(m_topLevelBuildSizes.m_buildScratchSize, 4u);
+                const auto& topLevel = scene.m_topLevels[scene.m_currentSlot];
+
                 // AS barriers cover the shared buffer: read BLAS contents and write the TLAS.
                 auto scope = p.Scope();
                 scope.BuildTopLevel(
-                    scope.ReadWriteAccelerationStructure(StorageName).View(scene.m_topLevelView)
-                        .AccelerationStructure(topLevel->m_structure),
+                    scope.ReadWriteAccelerationStructure(StorageName).View(topLevel.m_view)
+                        .AccelerationStructure(topLevel.m_structure),
                     scope.BuildInput(InstancesName)
                         .View(RHI::BufferViewDescriptor::CreateStructured(0, m_instanceCount, sizeof(RHI::RayTracingInstance))),
                     scope.Scratch(ScratchName)
                         .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(topLevelScratchSize))),
                     TopLevelBuildFlags);
                 scope.Close();
+                scene.m_currentReady = true;
+                rhiContext.Add<AccelerationStructure>(m_storageResource, AccelerationStructure{ topLevel.m_structure });
                 rhiContext.Add<RayTracingSceneTag>(m_storageResource);
             })
             .Finalize();
@@ -278,37 +297,36 @@ namespace Spark::Render
         m_scratchByteCount = 0;
         m_instanceCount = 0;
 
+        // The previous TLAS can still reference stale BLASes. Their objects and ranges retire
+        // through the device's deferred release queue after the frame fences.
         RemoveStaleRayTracingBottomLevels();
         auto* world = WorldExecuteContext::Current();
         auto* rhiContext = RHI::RHIExecuteContext::Current();
-        if (rhiContext && m_storageResource != RHI::NullHandle)
+        if (!rhiContext || m_storageResource == RHI::NullHandle)
         {
-            rhiContext->Remove<RayTracingSceneTag>(m_storageResource);
+            return;
         }
-        if (!world || !rhiContext || !m_allocator || !RHI::IsResourceReady(*rhiContext, m_storageResource))
+
+        rhiContext->Remove<RayTracingSceneTag>(m_storageResource);
+        rhiContext->Remove<PreviousRayTracingSceneTag>(m_storageResource);
+        rhiContext->Remove<AccelerationStructure>(m_storageResource);
+
+        auto& scene = rhiContext->Get<RayTracingScene>(m_storageResource);
+        scene.m_previousReady = scene.m_currentReady && world != nullptr;
+        scene.m_currentReady = false;
+        if (scene.m_previousReady)
+        {
+            // The last build stays in place. Reuse the other range on the same Graphics queue.
+            scene.m_currentSlot = 1 - scene.m_currentSlot;
+            rhiContext->Add<PreviousRayTracingSceneTag>(m_storageResource);
+        }
+        if (!world)
         {
             return;
         }
 
         const auto& storageBuffer = *rhiContext->Get<RHI::Components::Buffer>(m_storageResource).m_buffer;
         RHI::Device& device = storageBuffer.GetDevice();
-        const auto* owned = rhiContext->TryGet<AccelerationStructure>(m_storageResource);
-        if (owned == nullptr || owned->m_structure == nullptr)
-        {
-            RHI::AccelerationStructureDescriptor descriptor;
-            descriptor.m_type = RHI::AccelerationStructureType::TopLevel;
-            descriptor.m_buffer = &storageBuffer;
-            descriptor.m_offset = m_topLevelAllocation.GetOffset();
-            descriptor.m_size = m_topLevelAllocation.GetSize();
-            Ptr<RHI::AccelerationStructure> structure = Service<RHI::Factory>::Get()->CreateAccelerationStructure();
-            if (!structure || structure->Init(device, descriptor) != RHI::ResultCode::Success)
-            {
-                LOG_ERROR("[RayTracingSceneSystem] Failed to create the TLAS.");
-                return;
-            }
-            rhiContext->AddOrReplace<AccelerationStructure>(m_storageResource,
-                AccelerationStructure{ eastl::move(structure) });
-        }
         static_assert(InstanceCapacity <= (1u << 24), "A ray tracing instance ID has 24 bits.");
         for (auto [entity, count] : rhiContext->GetView<ActiveInstanceCount>().each())
         {
@@ -428,7 +446,10 @@ namespace Spark::Render
         {
             world->Clear<RayTracingBottomLevel>();
         }
-        m_topLevelAllocation.Reset();
+        for (auto& allocation : m_topLevelAllocations)
+        {
+            allocation.Reset();
+        }
         m_topLevelBuildSizes = {};
         if (m_storageResource != RHI::NullHandle)
         {

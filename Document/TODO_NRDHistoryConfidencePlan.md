@@ -6,7 +6,13 @@ Spark 当前给 RELAX 的 diffuse 和 specular 绑定同一张值为 `1` 的置�
 
 ## 1. 两帧光追场景
 
-由光追系统管理当前和上一帧的 TLAS，提供各自的资源句柄和有效状态。需要复测的渲染 pass 自行导入两份场景并声明读取依赖。每帧构建一次 TLAS，构建结果保留到下一帧使用。TLAS 存储的复用和旧 BLAS 的释放都要等到相关 GPU 读取结束，尤其要覆盖网格删除、替换或形变。静态 BLAS 可以共享。 [现有光追场景方案](TODO_RayTracingScenePlan.md)
+### 实现进展（2026-11-26）
+
+- `RayTracingSceneSystem` 在一块 512 MiB 的 AS buffer 中预留两个独立的 TLAS 区间，其余空间继续分配给 BLAS。每帧在 Graphics 队列构建一次当前 TLAS，上一帧的结果留在原区间。实例输入和 scratch 各复用一份，构建与查询沿用 RenderGraph 的资源依赖和整块 buffer 屏障。 [场景系统](../Engine/Code/RunTime/Feature/Render/RayTracing/RayTracingSceneSystem.cpp) · [原光追场景方案](TODO_RayTracingScenePlan.md)
+- 当前和上一帧的 tag 都指向同一个 buffer，`GetCurrentTopLevel()` 和 `GetPreviousTopLevel()` 分别提供对应的 AS 对象和区间。首帧或紧邻上一帧未安排 TLAS 构建时，历史不可用。现有 pass 继续通过 `ImportShared` 读取当前帧的 `g_RayTracingScene`。需要历史时，可以普通导入同一 buffer，并显式绑定历史 AS 及其区间。 [场景接口](../Engine/Code/RunTime/Feature/Render/RayTracing/RayTracingScene.h)
+- 两帧可共享静态 BLAS。网格删除或替换时，旧 BLAS 对象和存储区间沿用设备延迟回收，覆盖上一帧 TLAS 在本帧的读取。后续接入顶点形变时，需要用构建输入版本识别变化，并为仍被历史引用的 BLAS 保留旧地址。 [BLAS 生命周期](../Engine/Code/RunTime/Feature/Render/RayTracing/RayTracingBottomLevel.cpp)
+
+历史 TLAS 的 `ImportShared` 绑定方式留到后续接入时确定。当前共享发布每个 buffer 只解析一个 AS 对象。第一步代码已实现，编译和 GPU 验证待完成。
 
 ## 2. 灯光持久化和跨帧身份
 
@@ -30,7 +36,7 @@ Spark 当前给 RELAX 的 diffuse 和 specular 绑定同一张值为 `1` 的置�
 
 ## 实施时确定的细节
 
-TLAS 轮转与同步方式、灯光数据布局、样本记录格式、采样密度、贡献计算公式和滤波参数，在接入时结合现有接口和 GPU capture 确定。
+灯光数据布局、样本记录格式、采样密度、贡献计算公式和滤波参数，在接入时结合现有接口和 GPU capture 确定。
 
 ## 验收
 

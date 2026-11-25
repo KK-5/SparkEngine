@@ -9,6 +9,7 @@
 #include <Suballocation/Suballocator.h>
 
 #include "RayTracingGeometryBuildInput.h"
+#include "RayTracingScene.h"
 
 namespace Spark::Render
 {
@@ -25,7 +26,7 @@ namespace Spark::Render
     private:
         bool EnsureScratchBuffer(RHI::RHIContext& rhiContext, uint64_t byteCount);
 
-        static constexpr uint64_t StorageCapacityInBytes = 256ull * 1024 * 1024;
+        static constexpr uint64_t StorageCapacityInBytes = 512ull * 1024 * 1024;
         static constexpr uint64_t ScratchBytesPerFrame = 8ull * 1024 * 1024;
 
         struct BottomLevelBuild
@@ -41,7 +42,7 @@ namespace Spark::Render
         RHI::RHIHandle m_scratchResource = RHI::NullHandle;
         RHI::RHIHandle m_instanceResource = RHI::NullHandle;
         Ptr<Suballocator> m_allocator;
-        Suballocation m_topLevelAllocation;
+        eastl::array<Suballocation, RayTracingScene::TopLevelSlotCount> m_topLevelAllocations;
         RHI::AccelerationStructureBuildSizes m_topLevelBuildSizes;
 
         eastl::vector<BottomLevelBuild> m_bottomLevelBuilds;

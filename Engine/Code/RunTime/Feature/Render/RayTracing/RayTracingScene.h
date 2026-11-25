@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include <EASTL/array.h>
+#include <RHI/RayTracing/AccelerationStructure.h>
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 
 namespace Spark::Render
@@ -15,10 +17,36 @@ namespace Spark::Render
     //! On the shared storage buffer once this frame's TLAS build is scheduled.
     struct RayTracingSceneTag {};
 
-    //! The TLAS range in the storage buffer. The structure is the buffer entity's
-    //! AccelerationStructure component, which is also what shaders are bound to.
+    //! On the same buffer when the immediately preceding frame has a TLAS.
+    struct PreviousRayTracingSceneTag {};
+
+    //! Both TLAS objects refer to disjoint ranges of this resource's shared AS buffer.
+    //! A pass that binds both imports the buffer once and binds each range explicitly.
     struct RayTracingScene
     {
-        RHI::BufferViewDescriptor m_topLevelView;
+        struct TopLevel
+        {
+            RHI::BufferViewDescriptor m_view;
+            Ptr<RHI::AccelerationStructure> m_structure;
+        };
+
+        const TopLevel* GetCurrentTopLevel() const
+        {
+            return m_currentReady ? &m_topLevels[m_currentSlot] : nullptr;
+        }
+
+        const TopLevel* GetPreviousTopLevel() const
+        {
+            return m_previousReady ? &m_topLevels[1 - m_currentSlot] : nullptr;
+        }
+
+    private:
+        friend class RayTracingSceneSystem;
+        static constexpr uint32_t TopLevelSlotCount = 2;
+
+        eastl::array<TopLevel, TopLevelSlotCount> m_topLevels;
+        uint32_t m_currentSlot = 0;
+        bool m_currentReady = false;
+        bool m_previousReady = false;
     };
 }
