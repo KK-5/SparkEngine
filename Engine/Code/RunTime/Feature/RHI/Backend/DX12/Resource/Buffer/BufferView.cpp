@@ -33,7 +33,7 @@ namespace Spark::RHI::DX12
 
     DescriptorHandle BufferView::GetClearDescriptor() const
     {
-        return m_clearDescriptor;
+        return m_staticReadWriteDescriptor;
     }
 
     DescriptorHandle BufferView::GetConstantDescriptor() const
@@ -94,7 +94,7 @@ namespace Spark::RHI::DX12
         if (CheckBitsAny(bindFlags, RHI::BufferBindFlags::ShaderWrite))
         {
             descriptorContext.CreateUnorderedAccessView(
-                buffer, viewDescriptor, m_readWriteDescriptor, m_clearDescriptor, m_staticReadWriteDescriptor);
+                buffer, viewDescriptor, m_readWriteDescriptor, m_staticReadWriteDescriptor);
             if (!m_staticReadWriteDescriptor.IsNull())
             {
                 m_bindlessReadWriteIndex = descriptorContext.GetStaticRegionOffset() + m_staticReadWriteDescriptor.m_index;
@@ -115,7 +115,6 @@ namespace Spark::RHI::DX12
         DescriptorContext& descriptorContext = Service<ID3D12FactoryInterface>::Get()->AcquireDescriptorContext(device);
         descriptorContext.ReleaseDescriptor(m_readDescriptor);
         descriptorContext.ReleaseDescriptor(m_readWriteDescriptor);
-        descriptorContext.ReleaseDescriptor(m_clearDescriptor);
         descriptorContext.ReleaseDescriptor(m_constantDescriptor);
         descriptorContext.ReleaseStaticDescriptor(m_staticReadDescriptor);
         descriptorContext.ReleaseStaticDescriptor(m_staticReadWriteDescriptor);

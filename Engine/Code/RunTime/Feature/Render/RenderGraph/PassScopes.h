@@ -472,8 +472,8 @@ namespace Spark::Render
                 destination.GetHandle(), destinationOffset, byteCount);
         }
 
-        //! Fill bytes in a FillDestination of this Scope with a repeated uint32_t. Both the
-        //! offset and the nonzero byte count are multiples of four. Ranges in a Scope do not overlap.
+        //! Fill bytes in a FillDestination of this Scope with a repeated uint32_t. The offset
+        //! is a multiple of 16 and the nonzero byte count is a multiple of four. Ranges in a Scope do not overlap.
         void FillBuffer(const Attachment& destination, uint64_t byteOffset, uint64_t byteCount, uint32_t value = 0)
         {
             m_builder->AddScopeBufferFill(m_scope, destination.GetHandle(), byteOffset, byteCount, value);

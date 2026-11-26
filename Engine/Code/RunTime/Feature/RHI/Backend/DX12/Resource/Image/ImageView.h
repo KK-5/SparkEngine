@@ -61,7 +61,6 @@ namespace Spark::RHI::DX12
         DXGI_FORMAT m_format = DXGI_FORMAT_UNKNOWN;
         DescriptorHandle m_readDescriptor;
         DescriptorHandle m_readWriteDescriptor;
-        DescriptorHandle m_clearDescriptor;
         DescriptorHandle m_colorDescriptor;
         DescriptorHandle m_depthStencilDescriptor;
         DescriptorHandle m_depthStencilReadDescriptor;

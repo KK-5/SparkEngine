@@ -58,7 +58,6 @@ namespace Spark::RHI::DX12
             const Buffer& buffer,
             const RHI::BufferViewDescriptor& bufferViewDescriptor,
             DescriptorHandle& unorderedAccessView,
-            DescriptorHandle& unorderedAccessViewClear,
             DescriptorHandle& staticView);
 
         void CreateShaderResourceView(
@@ -71,7 +70,6 @@ namespace Spark::RHI::DX12
             const Image& image,
             const RHI::ImageViewDescriptor& imageViewDescriptor,
             DescriptorHandle& unorderedAccessView,
-            DescriptorHandle& unorderedAccessViewClear,
             DescriptorHandle& staticView);
 
         //! An SRV with no resource whose view carries the structure's address.
@@ -128,6 +126,7 @@ namespace Spark::RHI::DX12
 
         D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandle(DescriptorHandle handle) const;
         D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandle(DescriptorHandle handle) const;
+        D3D12_GPU_DESCRIPTOR_HANDLE GetStaticGpuNativeHandle(DescriptorHandle handle) const;
         D3D12_CPU_DESCRIPTOR_HANDLE GetCpuNativeHandleForTable(DescriptorTable descTable) const;
         D3D12_GPU_DESCRIPTOR_HANDLE GetGpuNativeHandleForTable(DescriptorTable descTable) const;
 
@@ -152,8 +151,6 @@ namespace Spark::RHI::DX12
 
         // Offset from the shader-visible descriptor heap start to the first static descriptor handle
         uint32_t m_staticDescriptorOffset = 0;
-
-        void CopyDescriptor(DescriptorHandle dest, DescriptorHandle src);
 
         // Accepts a descriptor allocated from the CPU visible heap and creates a copy in the shader-
         // visible heap in the static region

@@ -389,7 +389,6 @@ namespace Spark::RHI::DX12
         const Buffer& buffer,
         const RHI::BufferViewDescriptor& bufferViewDescriptor,
         DescriptorHandle& unorderedAccessView,
-        DescriptorHandle& unorderedAccessViewClear,
         DescriptorHandle& staticView)
     {
         if (unorderedAccessView.IsNull())
@@ -407,33 +406,8 @@ namespace Spark::RHI::DX12
         ConvertBufferView(buffer, bufferViewDescriptor, viewDesc);
         m_D3D12Device->CreateUnorderedAccessView(buffer.GetMemoryView().GetMemory(), nullptr, &viewDesc, unorderedAccessDescriptor);
 
-        // The shader-visible "clear" descriptor is intentionally NOT allocated here.
-        // It is only consumed by CommandList::ClearUnorderedAccess (a per-use op), but
-        // was baked onto every UAV view unconditionally, via a single SHADER_VISIBLE
-        // AllocateHandle — which is invalid: shader-visible descriptors must come from a
-        // table, not a single handle (this ASSERTed inside DescriptorTablePool). The clear
-        // path will instead supply its own shader-visible handle (via a View) at clear
-        // time, keeping descriptor purposes separated. Until then, clear is a no-op.
-        // if (unorderedAccessViewClear.IsNull())
-        // {
-        //     unorderedAccessViewClear = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
-        //     if (unorderedAccessViewClear.IsNull())
-        //     {
-        //         ASSERT(false, "Descriptor heap ran out of memory for descriptor handles.");
-        //         return;
-        //     }
-        // }
-        // CopyDescriptor(unorderedAccessViewClear, unorderedAccessView);
-
-        staticView = m_staticPool.AllocateHandle();
-        ASSERT(!staticView.IsNull(), "Failed to allocate static descriptor from shader-visible CBV_SRV_UAV heap");
-        D3D12_UNORDERED_ACCESS_VIEW_DESC staticViewDesc;
-        RHI::BufferViewDescriptor rawDesc = RHI::BufferViewDescriptor::CreateRaw(
-            bufferViewDescriptor.m_elementOffset * bufferViewDescriptor.m_elementSize,
-            bufferViewDescriptor.m_elementCount * bufferViewDescriptor.m_elementSize);
-        ConvertBufferView(buffer, rawDesc, staticViewDesc);
-        m_D3D12Device->CreateUnorderedAccessView(
-            buffer.GetMemoryView().GetMemory(), nullptr, &staticViewDesc, m_staticPool.GetCpuNativeHandle(staticView));
+        // Preserve the UAV format and stride for bindless access and clears.
+        staticView = AllocateStaticDescriptor(unorderedAccessDescriptor);
     }
 
     void DescriptorContext::CreateShaderResourceView(
@@ -473,7 +447,6 @@ namespace Spark::RHI::DX12
         const Image& image,
         const RHI::ImageViewDescriptor& imageViewDescriptor,
         DescriptorHandle& unorderedAccessView,
-        DescriptorHandle& unorderedAccessViewClear,
         DescriptorHandle& staticView)
     {
         if (unorderedAccessView.IsNull())
@@ -490,24 +463,6 @@ namespace Spark::RHI::DX12
         D3D12_UNORDERED_ACCESS_VIEW_DESC viewDesc;
         ConvertImageView(image, imageViewDescriptor, viewDesc);
         m_D3D12Device->CreateUnorderedAccessView(image.GetMemoryView().GetMemory(), nullptr, &viewDesc, unorderedAccessDescriptor);
-
-        // The shader-visible "clear" descriptor is intentionally NOT allocated here.
-        // It is only consumed by CommandList::ClearUnorderedAccess (a per-use op), but
-        // was baked onto every UAV view unconditionally, via a single SHADER_VISIBLE
-        // AllocateHandle — which is invalid: shader-visible descriptors must come from a
-        // table, not a single handle (this ASSERTed inside DescriptorTablePool). The clear
-        // path will instead supply its own shader-visible handle (via a View) at clear
-        // time, keeping descriptor purposes separated. Until then, clear is a no-op.
-        // if (unorderedAccessViewClear.IsNull())
-        // {
-        //     unorderedAccessViewClear = AllocateHandle<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE>();
-        //     if (unorderedAccessViewClear.IsNull())
-        //     {
-        //         ASSERT(false, "Descriptor heap ran out of memory for static handles.");
-        //         return;
-        //     }
-        // }
-        // CopyDescriptor(unorderedAccessViewClear, unorderedAccessView);
 
         if (staticView.m_index == DescriptorHandle::NullIndex)
         {
@@ -623,13 +578,6 @@ namespace Spark::RHI::DX12
         return staticHandle;
     }
 
-    void DescriptorContext::CopyDescriptor(DescriptorHandle dest, DescriptorHandle src)
-    {
-        ASSERT(dest.m_type == src.m_type, "Cannot copy descriptors from different heaps");
-        ASSERT(!src.IsShaderVisible(), "The source descriptor cannot be shader visible.");
-        m_D3D12Device->CopyDescriptorsSimple(1, GetCpuNativeHandle(dest), GetCpuNativeHandle(src), dest.m_type);
-    }
-
     void DescriptorContext::UpdateDescriptorTableRange(DescriptorTable gpuDestinationTable, const DescriptorHandle* cpuSourceDescriptors, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
     {
         const uint32_t DescriptorCount = gpuDestinationTable.GetSize();
@@ -705,6 +653,11 @@ namespace Spark::RHI::DX12
     D3D12_GPU_DESCRIPTOR_HANDLE DescriptorContext::GetGpuNativeHandle(DescriptorHandle handle) const
     {
         return GetPool(handle.m_type, handle.m_flags).GetGpuNativeHandle(handle);
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorContext::GetStaticGpuNativeHandle(DescriptorHandle handle) const
+    {
+        return m_staticPool.GetGpuNativeHandle(handle);
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE DescriptorContext::GetCpuNativeHandleForTable(DescriptorTable descTable) const

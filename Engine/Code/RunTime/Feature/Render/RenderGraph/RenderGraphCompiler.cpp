@@ -1495,20 +1495,18 @@ namespace Spark::Render
             const auto& buffer = backing->m_buffer->GetDescriptor();
             const bool writable = CheckBitsAny(buffer.m_bindFlags, RHI::BufferBindFlags::ShaderWrite);
             ASSERT(writable, "FillBuffer destination {} needs BufferBindFlags::ShaderWrite.", name);
-            const uint64_t firstWord = fill.m_byteOffset / sizeof(uint32_t);
-            const uint64_t wordCount = fill.m_byteCount / sizeof(uint32_t);
             const bool inBounds = fill.m_byteOffset <= buffer.m_byteCount
-                && fill.m_byteCount <= buffer.m_byteCount - fill.m_byteOffset
-                && firstWord <= UINT32_MAX && wordCount <= UINT32_MAX;
+                && fill.m_byteCount <= buffer.m_byteCount - fill.m_byteOffset;
+            const bool fitsRawView = fill.m_byteOffset <= UINT32_MAX && fill.m_byteCount <= UINT32_MAX;
             ASSERT(inBounds, "FillBuffer range is out of bounds for {}.", name);
-            if (!writable || !inBounds)
+            ASSERT(fitsRawView, "FillBuffer offset and size must fit the raw view's 32-bit byte parameters for {}.", name);
+            if (!writable || !inBounds || !fitsRawView)
             {
                 continue;
             }
 
-            // A four-byte structured UAV permits word-aligned offsets on DX12.
-            auto view = RHI::BufferViewDescriptor::CreateStructured(
-                static_cast<uint32_t>(firstWord), static_cast<uint32_t>(wordCount), sizeof(uint32_t));
+            auto view = RHI::BufferViewDescriptor::CreateRaw(
+                static_cast<uint32_t>(fill.m_byteOffset), static_cast<uint32_t>(fill.m_byteCount));
             view.m_overrideBindFlags = RHI::BufferBindFlags::ShaderWrite;
             auto& request = context.Get<RHI::BufferClearRequest>(item);
             request.m_bufferView = ResolveResourceView(context, attachment.m_buffer, view, m_frameIndex);

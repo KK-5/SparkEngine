@@ -1302,7 +1302,7 @@ namespace Spark::RHI::DX12
         if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Uint)
         {
             GetCommandList()->ClearUnorderedAccessViewUint(
-                descriptorContext.GetGpuNativeHandle(imageView.GetClearDescriptor()),
+                descriptorContext.GetStaticGpuNativeHandle(imageView.GetClearDescriptor()),
                 descriptorContext.GetCpuNativeHandle(imageView.GetReadWriteDescriptor()),
                 imageView.GetMemory(),
                 request.m_clearValue.m_vector4Uint.data(), 0, nullptr);
@@ -1310,7 +1310,7 @@ namespace Spark::RHI::DX12
         else if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Float)
         {
             GetCommandList()->ClearUnorderedAccessViewFloat(
-                descriptorContext.GetGpuNativeHandle(imageView.GetClearDescriptor()),
+                descriptorContext.GetStaticGpuNativeHandle(imageView.GetClearDescriptor()),
                 descriptorContext.GetCpuNativeHandle(imageView.GetReadWriteDescriptor()),
                 imageView.GetMemory(),
                 request.m_clearValue.m_vector4Float.data(), 0, nullptr);
@@ -1336,7 +1336,7 @@ namespace Spark::RHI::DX12
         if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Uint)
         {
             GetCommandList()->ClearUnorderedAccessViewUint(
-                descriptorContext.GetGpuNativeHandle(bufferView.GetClearDescriptor()),
+                descriptorContext.GetStaticGpuNativeHandle(bufferView.GetClearDescriptor()),
                 descriptorContext.GetCpuNativeHandle(bufferView.GetReadWriteDescriptor()),
                 bufferView.GetMemory(),
                 request.m_clearValue.m_vector4Uint.data(), 0, nullptr);
@@ -1344,7 +1344,7 @@ namespace Spark::RHI::DX12
         else if (request.m_clearValue.m_type == RHI::ClearValueType::Vector4Float)
         {
             GetCommandList()->ClearUnorderedAccessViewFloat(
-                descriptorContext.GetGpuNativeHandle(bufferView.GetClearDescriptor()),
+                descriptorContext.GetStaticGpuNativeHandle(bufferView.GetClearDescriptor()),
                 descriptorContext.GetCpuNativeHandle(bufferView.GetReadWriteDescriptor()),
                 bufferView.GetMemory(),
                 request.m_clearValue.m_vector4Float.data(), 0, nullptr);

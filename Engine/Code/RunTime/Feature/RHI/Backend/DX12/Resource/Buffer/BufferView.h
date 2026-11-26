@@ -52,7 +52,6 @@ namespace Spark::RHI::DX12
 
         DescriptorHandle m_readDescriptor;
         DescriptorHandle m_readWriteDescriptor;
-        DescriptorHandle m_clearDescriptor;
         DescriptorHandle m_constantDescriptor;
         GpuVirtualAddress m_gpuAddress = 0;
 

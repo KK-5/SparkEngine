@@ -44,7 +44,7 @@ namespace Spark::RHI::DX12
 
     DescriptorHandle ImageView::GetClearDescriptor() const
     {
-        return m_clearDescriptor;
+        return m_staticReadWriteDescriptor;
     }
 
     DescriptorHandle ImageView::GetColorDescriptor() const
@@ -102,7 +102,7 @@ namespace Spark::RHI::DX12
         if (CheckBitsAny(bindFlags, RHI::ImageBindFlags::ShaderWrite))
         {
             context.CreateUnorderedAccessView(
-                image, viewDescriptor, m_readWriteDescriptor, m_clearDescriptor, m_staticReadWriteDescriptor);
+                image, viewDescriptor, m_readWriteDescriptor, m_staticReadWriteDescriptor);
             if (!m_staticReadWriteDescriptor.IsNull())
             {
                 m_bindlessReadWriteIndex = context.GetStaticRegionOffset() + m_staticReadWriteDescriptor.m_index;
@@ -132,7 +132,6 @@ namespace Spark::RHI::DX12
 
         context.ReleaseDescriptor(m_readDescriptor);
         context.ReleaseDescriptor(m_readWriteDescriptor);
-        context.ReleaseDescriptor(m_clearDescriptor);
         context.ReleaseDescriptor(m_colorDescriptor);
         context.ReleaseDescriptor(m_depthStencilDescriptor);
         context.ReleaseDescriptor(m_depthStencilReadDescriptor);

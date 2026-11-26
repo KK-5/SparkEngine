@@ -811,9 +811,10 @@ namespace Spark::Render
         const bool validDestination = buffer && buffer->m_usage == RHI::AttachmentUsage::BufferFill
             && context.Get<ScopeAttachment>(destination).m_scope == scope;
         ASSERT(validDestination, "FillBuffer needs a FillDestination of the same Scope.");
-        const bool validRange = byteCount != 0 && byteOffset % sizeof(uint32_t) == 0
+        constexpr uint64_t rawUavOffsetAlignment = 16;
+        const bool validRange = byteCount != 0 && byteOffset % rawUavOffsetAlignment == 0
             && byteCount % sizeof(uint32_t) == 0;
-        ASSERT(validRange, "FillBuffer needs a nonempty range with a four-byte aligned offset and size.");
+        ASSERT(validRange, "FillBuffer needs a 16-byte aligned offset and a nonzero size that is a multiple of four bytes.");
         if (!validDestination || !validRange)
         {
             return;
