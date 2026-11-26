@@ -11,6 +11,7 @@
 #include <Binding/ShaderUsage.h>
 #include <RHI/Pipeline/PipelineLayoutDescriptor.h>
 #include <RHI/Command/CopyItem.h>
+#include <RHI/Command/ClearRequest.h>
 #include <RHI/Command/AccelerationStructureBuildItem.h>
 #include <RHI/Command/DispatchItem.h>
 #include <RHI/Command/DrawItem.h>
@@ -795,6 +796,33 @@ namespace Spark::Render
         const RHIHandle item = AddScopeItem(scope);
         context.Add<RHI::CopyItem>(item, RHI::CopyItem(RHI::CopyImageToBufferDescriptor{}));
         context.Add<ItemCopy>(item, ItemCopy{ source, destination });
+    }
+
+    void RenderGraphBuilder::AddScopeBufferFill(RHIHandle scope, RHIHandle destination,
+        uint64_t byteOffset, uint64_t byteCount, uint32_t value)
+    {
+        CheckScopeOpen(scope);
+        auto& context = *RHIExecuteContext::Current();
+        if (destination == NullHandle)
+        {
+            return;
+        }
+        const auto* buffer = context.TryGet<BufferPassAttachment>(destination);
+        const bool validDestination = buffer && buffer->m_usage == RHI::AttachmentUsage::BufferFill
+            && context.Get<ScopeAttachment>(destination).m_scope == scope;
+        ASSERT(validDestination, "FillBuffer needs a FillDestination of the same Scope.");
+        const bool validRange = byteCount != 0 && byteOffset % sizeof(uint32_t) == 0
+            && byteCount % sizeof(uint32_t) == 0;
+        ASSERT(validRange, "FillBuffer needs a nonempty range with a four-byte aligned offset and size.");
+        if (!validDestination || !validRange)
+        {
+            return;
+        }
+
+        const RHIHandle item = AddScopeItem(scope);
+        context.Add<ItemBufferFill>(item, ItemBufferFill{ destination, byteOffset, byteCount });
+        context.Add<RHI::BufferClearRequest>(item, RHI::BufferClearRequest{
+            RHI::ClearValue::CreateVector4Uint(value, value, value, value) });
     }
 
     ItemAccelerationStructureBuild RenderGraphBuilder::MakeAccelerationStructureBuild(RHIHandle scope,

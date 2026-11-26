@@ -1,6 +1,5 @@
 #pragma once
 
-#include <EASTL/span.h>
 #include <EASTL/type_traits.h>
 #include <EASTL/vector.h>
 
@@ -43,6 +42,12 @@ namespace Spark::Render
             uint32_t       m_spaceId     = 0;
         };
 
+        struct ByteRange
+        {
+            uint64_t m_byteOffset = 0;
+            uint64_t m_byteCount = 0;
+        };
+
         bool Init(RHI::RHIContext& rhiCtx, RHI::Device& device, const Descriptor& descriptor);
         //! After the GPU is idle, and after every element is gone.
         void Shutdown(RHI::RHIContext& rhiCtx);
@@ -71,10 +76,10 @@ namespace Spark::Render
         //! This frame's writes, for the pass that applies them.
         const ElementUpdateBuffer& GetUpdates() const { return m_updates; }
         uint64_t GetByteCount() const { return uint64_t(m_descriptor.m_capacity) * m_descriptor.m_elementSize; }
-        uint64_t GetPageSize() const { return m_pool.GetPageSize(); }
-        //! This frame's page changes. An occupied page may need initialization before an owner
-        //! reads slots it has never written.
-        eastl::span<const Suballocator::PageChange> GetPageChanges() const { return m_pageChanges; }
+
+        //! Replaces ranges with the merged byte ranges for pages made occupied by BeginUpdate.
+        //! An owner that initializes these ranges does so before applying GetUpdates().
+        void GetInitializationRanges(eastl::vector<ByteRange>& ranges) const;
 
     private:
         void SetBytes(uint32_t index, const void* bytes);

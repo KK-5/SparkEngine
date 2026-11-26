@@ -44,6 +44,7 @@ namespace Spark::RHI
         AccelStructWrite     = BIT(21),
         //! A build's scratch memory, read and written by it.
         AccelStructScratch   = BIT(22),
+        BufferFillWrite      = BIT(23),
 
         // states standing in for a layout [24+]
         Present              = BIT(24),
@@ -64,7 +65,7 @@ namespace Spark::RHI
 
         WriteMask =
             ShaderStorageWrite | ColorAttachmentWrite | DepthStencilWrite |
-            TransferWrite | ResolveWrite | AccelStructWrite | AccelStructScratch,
+            TransferWrite | ResolveWrite | AccelStructWrite | AccelStructScratch | BufferFillWrite,
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AccessFlags, uint32_t);

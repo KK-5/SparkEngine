@@ -536,7 +536,7 @@ namespace Spark::RHI::DX12
             AccessFlags::IndirectRead | AccessFlags::VertexIndexInput |
             AccessFlags::ConstantBufferRead | AccessFlags::PredicationRead |
             AccessFlags::AccelStructRead | AccessFlags::AccelStructWrite | AccessFlags::AccelStructBuildInputRead |
-            AccessFlags::AccelStructScratch;
+            AccessFlags::AccelStructScratch | AccessFlags::BufferFillWrite;
 
         constexpr AccessFlags k_imageOnlyAccess =
             AccessFlags::DepthStencilRead | AccessFlags::ColorAttachmentRead |
@@ -569,7 +569,8 @@ namespace Spark::RHI::DX12
             if (has(AccessFlags::VertexIndexInput))   { a |= D3D12_BARRIER_ACCESS_VERTEX_BUFFER | D3D12_BARRIER_ACCESS_INDEX_BUFFER; }
             if (has(AccessFlags::ConstantBufferRead)) { a |= D3D12_BARRIER_ACCESS_CONSTANT_BUFFER; }
             if (has(k_shaderRead | AccessFlags::AccelStructBuildInputRead)) { a |= D3D12_BARRIER_ACCESS_SHADER_RESOURCE; }
-            if (has(AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite | AccessFlags::AccelStructScratch)) { a |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS; }
+            if (has(AccessFlags::ShaderStorageRead | AccessFlags::ShaderStorageWrite | AccessFlags::AccelStructScratch
+                    | AccessFlags::BufferFillWrite)) { a |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS; }
             if (has(AccessFlags::DepthStencilRead))   { a |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ; }
             if (has(AccessFlags::DepthStencilWrite))  { a |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE; }
             if (has(AccessFlags::ColorAttachmentRead | AccessFlags::ColorAttachmentWrite)) { a |= D3D12_BARRIER_ACCESS_RENDER_TARGET; }
@@ -648,6 +649,7 @@ namespace Spark::RHI::DX12
         if (stageHas(AttachmentStage::DrawIndirect))     { s |= D3D12_BARRIER_SYNC_EXECUTE_INDIRECT; }
         if (stageHas(AttachmentStage::VertexInput))      { s |= D3D12_BARRIER_SYNC_INDEX_INPUT | D3D12_BARRIER_SYNC_VERTEX_SHADING; }
         if (stageHas(AttachmentStage::AccelerationStructureBuild)) { s |= D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE; }
+        if (stageHas(AttachmentStage::BufferFill))       { s |= D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW; }
 
         // Vulkan resolves inside COLOR_ATTACHMENT_OUTPUT; D3D12 resolve is its own sync scope,
         // and every sync bit must suit the access.

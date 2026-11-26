@@ -113,6 +113,14 @@ namespace Spark::Render
         RHI::RHIHandle m_destinationAttachment {RHI::NullHandle};
     };
 
+    //! The target range of a buffer fill. Lowering resolves its view in the clear request.
+    struct ItemBufferFill
+    {
+        RHI::RHIHandle m_destinationAttachment {RHI::NullHandle};
+        uint64_t m_byteOffset = 0;
+        uint64_t m_byteCount = 0;
+    };
+
     struct ItemBuildGeometry
     {
         RHIHandle m_vertexAttachment {NullHandle};

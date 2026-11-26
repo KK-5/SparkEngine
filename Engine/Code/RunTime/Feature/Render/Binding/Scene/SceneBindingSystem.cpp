@@ -30,6 +30,7 @@
 #include <Binding/SharedGroupValues.h>
 #include <Binding/View/ViewBinding.h>
 #include <Pass/ComputePass.h>
+#include <Pass/CopyPass.h>
 #include <RenderGraph/PassScopes.h>
 #include <Resource/AssetManagerInterface.h>
 #include <Resource/Shader/ShaderAsset.h>
@@ -152,61 +153,35 @@ namespace Spark::Render
     {
         auto* assetManager = Service<Resource::AssetManager>::Get();
         ASSERT(assetManager, "AssetManager is unregister.");
-        auto loadComputeShader = [&](const char* path) -> Ptr<Resource::ShaderAsset>
+        const auto assetId = assetManager->MakeAssetId("engine://Shaders/ElementUpdate/ElementUpdate.hlsl");
+        const auto updateShader = assetId.IsValid()
+            ? assetManager->LoadAsset<Resource::ShaderAsset>(assetId) : Ptr<Resource::ShaderAsset>{};
+        if (!updateShader)
         {
-            const auto assetId = assetManager->MakeAssetId(path);
-            return assetId.IsValid() ? assetManager->LoadAsset<Resource::ShaderAsset>(assetId) : Ptr<Resource::ShaderAsset>{};
-        };
-        const auto clearShader = loadComputeShader("engine://Shaders/Lighting/ClearLightPages.hlsl");
-        const auto updateShader = loadComputeShader("engine://Shaders/ElementUpdate/ElementUpdate.hlsl");
-        if (!clearShader || !updateShader)
-        {
-            LOG_ERROR("[SceneBindingSystem] Failed to load the light page clear or light update shader.");
+            LOG_ERROR("[SceneBindingSystem] Failed to load the light update shader.");
             return;
         }
 
-        SPARK_COMPUTE_PASS(passContext, "SceneLightPageClear")
+        SPARK_COPY_PASS(passContext, "SceneLightPageClear")
             .Queue(RHI::HardwareQueueClass::Graphics)
-            .ComputeShader(clearShader)
-            .Build([this](ComputePassScopes& p)
+            .Build([this](CopyPassScopes& p)
             {
-                eastl::vector<uint32_t> pages;
-                for (const auto& change : m_lightBuffer.GetPageChanges())
-                {
-                    if (change.m_occupied)
-                    {
-                        pages.push_back(change.m_page);
-                    }
-                }
-                if (pages.empty())
+                eastl::vector<DeviceArray::ByteRange> ranges;
+                m_lightBuffer.GetInitializationRanges(ranges);
+                if (ranges.empty())
                 {
                     return;
                 }
-                eastl::sort(pages.begin(), pages.end());
 
                 const RHI::AttachmentId lightsName("SceneLights");
                 p.Import(lightsName, m_lightBuffer.GetResource());
-                const uint64_t pageSize = m_lightBuffer.GetPageSize();
-                const uint64_t bufferSize = m_lightBuffer.GetByteCount();
-                const auto view = RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(bufferSize));
-                for (size_t first = 0; first < pages.size();)
+                auto scope = p.Scope();
+                const auto destination = scope.FillDestination(lightsName);
+                for (const auto& range : ranges)
                 {
-                    size_t end = first + 1;
-                    while (end < pages.size() && pages[end] == pages[end - 1] + 1)
-                    {
-                        ++end;
-                    }
-                    const uint64_t beginByte = uint64_t(pages[first]) * pageSize;
-                    const uint64_t endByte = eastl::min((uint64_t(pages[end - 1]) + 1) * pageSize, bufferSize);
-                    const uint32_t wordCount = static_cast<uint32_t>((endByte - beginByte) / sizeof(uint32_t));
-                    auto scope = p.Scope();
-                    scope.ReadWriteBuffer(lightsName).View(view).Bind(RHI::InputName("g_Elements"));
-                    scope.Constant(RHI::InputName("firstWord"), static_cast<uint32_t>(beginByte / sizeof(uint32_t)));
-                    scope.Constant(RHI::InputName("wordCount"), wordCount);
-                    scope.Dispatch(wordCount);
-                    scope.Close();
-                    first = end;
+                    scope.FillBuffer(destination, range.m_byteOffset, range.m_byteCount, 0u);
                 }
+                scope.Close();
             })
             .Finalize();
         SPARK_COMPUTE_PASS(passContext, "SceneLightUpdate")

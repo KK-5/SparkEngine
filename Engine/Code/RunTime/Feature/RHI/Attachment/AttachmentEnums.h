@@ -96,6 +96,9 @@ namespace Spark::RHI
         //! Scratch memory read and written by an acceleration structure build.
         RayTracingScratchBuffer,
 
+        //! A buffer region written with a repeated 32-bit value.
+        BufferFill,
+
         Count,
     };
 
@@ -116,9 +119,10 @@ namespace Spark::RHI
         RayTracingAccelerationStructure = BIT(static_cast<uint32_t>(AttachmentUsage::RayTracingAccelerationStructure)),
         RayTracingBuildInput = BIT(static_cast<uint32_t>(AttachmentUsage::RayTracingBuildInput)),
         RayTracingScratchBuffer = BIT(static_cast<uint32_t>(AttachmentUsage::RayTracingScratchBuffer)),
+        BufferFill = BIT(static_cast<uint32_t>(AttachmentUsage::BufferFill)),
         All =
             RenderTarget | DepthStencil | Shader | Copy | Resolve | Predication | Indirect | SubpassInput | InputAssembly | ShadingRate |
-            Present | RayTracingAccelerationStructure | RayTracingBuildInput | RayTracingScratchBuffer
+            Present | RayTracingAccelerationStructure | RayTracingBuildInput | RayTracingScratchBuffer | BufferFill
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AttachmentUsageMask, uint32_t);
@@ -171,12 +175,15 @@ namespace Spark::RHI
         //! Acceleration structure build: its destination, update source, scratch and inputs
         AccelerationStructureBuild = BIT(12),
 
+        //! Native buffer fill commands.
+        BufferFill = BIT(13),
+
         //! All graphics stages
         AnyGraphics = VertexShader | FragmentShader | ComputeShader | RayTracingShader,
 
         //! All stages
         Any = AnyGraphics | EarlyFragmentTest | LateFragmentTest | ColorAttachmentOutput | Copy | Predication | DrawIndirect |
-            VertexInput | ShadingRate | AccelerationStructureBuild
+            VertexInput | ShadingRate | AccelerationStructureBuild | BufferFill
     };
 
     DEFINE_ENUM_BITWISE_OPERATORS(Spark::RHI::AttachmentStage, uint32_t);

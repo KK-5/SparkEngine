@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include <EASTL/algorithm.h>
+#include <EASTL/sort.h>
 #include <EASTL/string.h>
 
 #include <RHI/Component/Component.h>
@@ -108,6 +109,41 @@ namespace Spark::Render
                 m_known.size());
             eastl::fill(m_known.begin() + first, m_known.begin() + end, uint8_t(0));
         }
+    }
+
+    void DeviceArray::GetInitializationRanges(eastl::vector<ByteRange>& ranges) const
+    {
+        ranges.clear();
+        const uint64_t pageSize = m_pool.GetPageSize();
+        const uint64_t bufferSize = GetByteCount();
+        for (const auto& change : m_pageChanges)
+        {
+            if (change.m_occupied)
+            {
+                const uint64_t offset = uint64_t(change.m_page) * pageSize;
+                ranges.push_back(ByteRange{ offset, eastl::min(pageSize, bufferSize - offset) });
+            }
+        }
+        eastl::sort(ranges.begin(), ranges.end(), [](const ByteRange& lhs, const ByteRange& rhs)
+        {
+            return lhs.m_byteOffset < rhs.m_byteOffset;
+        });
+
+        size_t rangeCount = 0;
+        for (const ByteRange& range : ranges)
+        {
+            if (rangeCount != 0)
+            {
+                ByteRange& previous = ranges[rangeCount - 1];
+                if (previous.m_byteOffset + previous.m_byteCount == range.m_byteOffset)
+                {
+                    previous.m_byteCount += range.m_byteCount;
+                    continue;
+                }
+            }
+            ranges[rangeCount++] = range;
+        }
+        ranges.resize(rangeCount);
     }
 
     void DeviceArray::SetBytes(uint32_t index, const void* bytes)

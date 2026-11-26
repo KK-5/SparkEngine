@@ -206,6 +206,9 @@ namespace Spark::Render
 
         void AddScopeImageToBufferCopy(RHIHandle scope, RHIHandle source, RHIHandle destination);
 
+        void AddScopeBufferFill(RHIHandle scope, RHIHandle destination,
+            uint64_t byteOffset, uint64_t byteCount, uint32_t value);
+
         void AddScopeBuildBottomLevel(RHIHandle scope, RHIHandle destination,
             eastl::span<const TriangleBuildInput> geometries, RHIHandle scratch,
             RHI::AccelerationStructureBuildFlags flags);

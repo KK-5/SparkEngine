@@ -26,6 +26,7 @@
 #include <RHI/Command/RenderPassBeginInfo.h>
 
 #include <RHI/Command/CopyItem.h>
+#include <RHI/Command/ClearRequest.h>
 #include <RHI/Command/AccelerationStructureBuildItem.h>
 #include <RHI/RayTracing/RayTracingInstance.h>
 #include <RHI/Command/DispatchItem.h>
@@ -1475,6 +1476,43 @@ namespace Spark::Render
             descriptor.m_destinationBytesPerRow = layout.m_bytesPerRow;
             descriptor.m_destinationBytesPerImage = layout.m_bytesPerImage;
             descriptor.m_destinationFormat = imageDesc.m_format;
+        }
+    }
+
+    void RenderGraphCompiler::CompileItemBufferFills(RHIContext& context)
+    {
+        for (auto [item, fill] : context.GetStorage<ItemBufferFill>().each())
+        {
+            const auto& attachment = context.Get<BufferPassAttachment>(fill.m_destinationAttachment);
+            const auto* backing = context.TryGet<BackingBuffer>(attachment.m_buffer);
+            const char* name = attachment.m_attachmentId.m_id.GetCStr();
+            ASSERT(backing && backing->m_buffer, "FillBuffer destination {} has no backing.", name);
+            if (!backing || !backing->m_buffer)
+            {
+                continue;
+            }
+
+            const auto& buffer = backing->m_buffer->GetDescriptor();
+            const bool writable = CheckBitsAny(buffer.m_bindFlags, RHI::BufferBindFlags::ShaderWrite);
+            ASSERT(writable, "FillBuffer destination {} needs BufferBindFlags::ShaderWrite.", name);
+            const uint64_t firstWord = fill.m_byteOffset / sizeof(uint32_t);
+            const uint64_t wordCount = fill.m_byteCount / sizeof(uint32_t);
+            const bool inBounds = fill.m_byteOffset <= buffer.m_byteCount
+                && fill.m_byteCount <= buffer.m_byteCount - fill.m_byteOffset
+                && firstWord <= UINT32_MAX && wordCount <= UINT32_MAX;
+            ASSERT(inBounds, "FillBuffer range is out of bounds for {}.", name);
+            if (!writable || !inBounds)
+            {
+                continue;
+            }
+
+            // A four-byte structured UAV permits word-aligned offsets on DX12.
+            auto view = RHI::BufferViewDescriptor::CreateStructured(
+                static_cast<uint32_t>(firstWord), static_cast<uint32_t>(wordCount), sizeof(uint32_t));
+            view.m_overrideBindFlags = RHI::BufferBindFlags::ShaderWrite;
+            auto& request = context.Get<RHI::BufferClearRequest>(item);
+            request.m_bufferView = ResolveResourceView(context, attachment.m_buffer, view, m_frameIndex);
+            ASSERT(request.m_bufferView != nullptr, "FillBuffer destination {} has no UAV.", name);
         }
     }
 

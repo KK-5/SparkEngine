@@ -455,6 +455,10 @@ namespace Spark::Render
         //! The buffer a copy of this Scope writes. Created with BufferBindFlags::CopyWrite.
         Attachment CopyDestination(const RHI::AttachmentId& name);
 
+        //! The buffer a fill of this Scope writes. Use a Graphics or Compute queue and a
+        //! buffer created with ShaderWrite on DX12.
+        Attachment FillDestination(const RHI::AttachmentId& name);
+
         //! A single-sampled image created with ImageBindFlags::CopyRead. Select one color
         //! subresource with .View(...).
         Attachment CopyImageSource(const RHI::AttachmentId& name);
@@ -466,6 +470,13 @@ namespace Spark::Render
         {
             m_builder->AddScopeCopy(m_scope, source.GetHandle(), sourceOffset,
                 destination.GetHandle(), destinationOffset, byteCount);
+        }
+
+        //! Fill bytes in a FillDestination of this Scope with a repeated uint32_t. Both the
+        //! offset and the nonzero byte count are multiples of four. Ranges in a Scope do not overlap.
+        void FillBuffer(const Attachment& destination, uint64_t byteOffset, uint64_t byteCount, uint32_t value = 0)
+        {
+            m_builder->AddScopeBufferFill(m_scope, destination.GetHandle(), byteOffset, byteCount, value);
         }
 
         //! Copy the whole subresource of a CopyImageSource into a CopyDestination at offset zero.

@@ -126,6 +126,9 @@ namespace Spark::Render
         //! layout it needs. Runs after the transient stage.
         void CompileItemCopies(PassContext& passContext, RHIContext& context);
 
+        //! Resolve the destination view for each buffer fill after the backing exists.
+        void CompileItemBufferFills(RHIContext& context);
+
         //! Resolve build attachments and bind the owned geometry array after AS objects exist.
         void CompileItemAccelerationStructures(PassContext& passContext, RHIContext& context);
 

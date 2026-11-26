@@ -27,6 +27,9 @@ namespace Spark::RHI
         case AttachmentUsage::Copy:
             return wantsWrite ? AccessFlags::TransferWrite : AccessFlags::TransferRead;
 
+        case AttachmentUsage::BufferFill:
+            return AccessFlags::BufferFillWrite;
+
         case AttachmentUsage::Indirect:
             return AccessFlags::IndirectRead;
 

@@ -32,6 +32,7 @@ namespace Spark::RHI
                 && req(AccessFlags::ConstantBufferRead, BufferBindFlags::Constant)
                 && req(AccessFlags::ShaderStorageRead,  BufferBindFlags::ShaderWrite)
                 && req(AccessFlags::ShaderStorageWrite, BufferBindFlags::ShaderWrite)
+                && req(AccessFlags::BufferFillWrite,    BufferBindFlags::ShaderWrite)
                 && req(AccessFlags::VertexIndexInput,   BufferBindFlags::InputAssembly | BufferBindFlags::DynamicInputAssembly)
                 && req(AccessFlags::IndirectRead,       BufferBindFlags::Indirect)
                 && req(AccessFlags::PredicationRead,    BufferBindFlags::Predication)

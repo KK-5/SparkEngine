@@ -61,6 +61,14 @@ namespace Spark::Render
                 commandList->Submit(*copy, submitIndex);
                 return;
             }
+            if (const auto* fill = rhiContext.TryGet<RHI::BufferClearRequest>(item))
+            {
+                if (fill->m_bufferView)
+                {
+                    commandList->ClearUnorderedAccess(*fill);
+                }
+                return;
+            }
             if (const auto* build = rhiContext.TryGet<RHI::AccelerationStructureBuildItem>(item))
             {
                 commandList->Submit(*build, submitIndex);

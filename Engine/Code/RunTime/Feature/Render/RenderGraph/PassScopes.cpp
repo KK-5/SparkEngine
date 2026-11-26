@@ -495,6 +495,18 @@ namespace Spark::Render
             RHI::AttachmentUsage::Copy, RHI::AttachmentAccess::Write, RHI::AttachmentStage::Copy));
     }
 
+    Attachment CopyScope::FillDestination(const RHI::AttachmentId& name)
+    {
+        const auto queue = RHIExecuteContext::Current()->Get<Scope>(m_scope).m_queue;
+        if (queue == RHI::HardwareQueueClass::Copy)
+        {
+            ASSERT(false, "FillDestination requires a Graphics or Compute queue.");
+            return Attachment(NullHandle);
+        }
+        return Attachment(m_builder->AddScopeBufferAttachment(m_scope, name,
+            RHI::AttachmentUsage::BufferFill, RHI::AttachmentAccess::Write, RHI::AttachmentStage::BufferFill));
+    }
+
     Attachment CopyScope::CopyImageSource(const RHI::AttachmentId& name)
     {
         return Attachment(m_builder->AddScopeAttachment(m_scope, nullptr, name,
