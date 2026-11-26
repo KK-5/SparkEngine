@@ -186,6 +186,7 @@ namespace Spark::Render
         m_materialBindingSystem.SetUp(passContext);
         m_geometryBindingSystem.SetUp(passContext);
         m_instanceBindingSystem.SetUp(passContext);
+        m_sceneBindingSystem.SetUp(passContext);
         m_rayTracingSceneSystem.SetUp(passContext);
     }
 

@@ -75,16 +75,20 @@ float4 PSMain(VSOutput input) : SV_Target0
 
     // One sweep of the light list rather than a slot-to-light table: at these light counts
     // it costs what the lighting loop already costs, and it needs no extra buffer.
-    for (uint i = 0; i < g_LightCount; ++i)
+    for (uint i = 0; i < g_LightSlotCount; ++i)
     {
         LightData light = GetLight(i);
+        if (light.type == LIGHT_TYPE_INVALID)
+        {
+            continue;
+        }
         if (light.shadowMaskIndex < 0 || ShadowMaskSlice(light.shadowMaskIndex) != input.slice)
         {
             continue;
         }
 
         float visibility;
-        if (g_Scope.traceShadows != 0 && light.type == 0)
+        if (g_Scope.traceShadows != 0 && light.type == LIGHT_TYPE_DIRECTIONAL)
         {
             const float3 L = DirectionToLight(light, worldPos);
             visibility = TraceDirectionalShadow(worldPos, N, L) ? 1.0 : 0.0;

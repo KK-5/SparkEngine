@@ -45,7 +45,7 @@ bool SupportsDirectLightingGGXSample(LightSample lightSample, RayTracingLighting
     if (lightSample.Location.Light.Source == LIGHT_SOURCE_SCENE)
     {
         const LightData light = GetLight(lightSample.Location.Light.Index);
-        return light.type == 3u;
+        return light.type == LIGHT_TYPE_RECT;
     }
     return false;
 }

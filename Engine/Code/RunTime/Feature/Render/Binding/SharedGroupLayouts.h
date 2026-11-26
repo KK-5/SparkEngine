@@ -17,7 +17,7 @@ namespace Spark::Render
     {
         // space0, the scene
         inline constexpr const char* Lights            = "g_Lights";
-        inline constexpr const char* LightCount        = "g_LightCount";
+        inline constexpr const char* LightSlotCount    = "g_LightSlotCount";
         inline constexpr const char* ShadowViews       = "g_ShadowViews";
         inline constexpr const char* ViewShadowMaps    = "g_ViewShadowMaps";
         inline constexpr const char* ShadowTexelSize   = "g_ShadowMapTexelSize";

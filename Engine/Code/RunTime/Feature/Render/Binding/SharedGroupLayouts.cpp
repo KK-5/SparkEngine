@@ -59,7 +59,7 @@ namespace Spark::Render
 
             // cbuffer SceneConstants : register(b0), every member a 4-byte scalar.
             uint32_t constantOffset = 0;
-            for (const char* name : { SharedInput::LightCount, SharedInput::PrefilteredMips, SharedInput::EnvIntensity,
+            for (const char* name : { SharedInput::LightSlotCount, SharedInput::PrefilteredMips, SharedInput::EnvIntensity,
                                       SharedInput::ShadowTexelSize, SharedInput::FrameNumber, SharedInput::GameTime,
                                       SharedInput::PrevGameTime, SharedInput::DeltaTime, SharedInput::AreaLightLutReady })
             {

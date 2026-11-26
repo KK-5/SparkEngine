@@ -68,9 +68,13 @@ float3 GetForwardDirectLighting(float3 worldPos, float3 N, float3 V,
                                 float3 diffuseColor, float3 F0, float perceptualRoughness)
 {
     float3 color = float3(0.0, 0.0, 0.0);
-    for (uint i = 0; i < g_LightCount; ++i)
+    for (uint i = 0; i < g_LightSlotCount; ++i)
     {
         LightData light = GetLight(i);
+        if (light.type == LIGHT_TYPE_INVALID)
+        {
+            continue;
+        }
         color += EvaluateLightResponse(light, worldPos, N, V, diffuseColor, F0, perceptualRoughness)
                * LightShadow(light, worldPos, N);
     }

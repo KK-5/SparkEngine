@@ -14,6 +14,7 @@
 #include <RHI/RHIInterface.h>
 #include <RHI/Component/Component.h>
 #include <RHI/Device/Device.h>
+#include <RHI/HardwareQueue.h>
 #include <RHI/ResourceBuilder.h>
 #include <RHI/Resource/Buffer/Buffer.h>
 #include <RHI/Resource/Buffer/BufferViewDescriptor.h>
@@ -28,6 +29,10 @@
 #include <Binding/ShaderUsage.h>
 #include <Binding/SharedGroupValues.h>
 #include <Binding/View/ViewBinding.h>
+#include <Pass/ComputePass.h>
+#include <RenderGraph/PassScopes.h>
+#include <Resource/AssetManagerInterface.h>
+#include <Resource/Shader/ShaderAsset.h>
 
 #include <RHI/Resource/Image/Image.h>
 #include <RHI/Resource/Image/ImageView.h>
@@ -38,6 +43,7 @@
 #include <Light/Components.h>
 #include <Skybox/Components.h>
 #include <Scene/SceneTextureComponents.h>
+#include <Transform/Components.h>
 
 #include <View/View.h>
 #include <View/ViewTags.h>
@@ -48,12 +54,12 @@
 #include <Pass/Component/RHIComponents.h>
 
 #include "RenderGraph/RenderGraphUtils.h"
-#include "SceneBinding.h"
 
 namespace Spark::Render
 {
     namespace
     {
+        constexpr uint32_t LightCapacity = 1u << 16;
 
         template<typename Tag>
         RHI::RHIHandle FindLookupTable(RHI::RHIContext& context)
@@ -68,7 +74,7 @@ namespace Spark::Render
         //! for one record at least, so the view is never empty. The buffer's slots rotate, so
         //! `taggedSlot` follows this frame's, and the usage is refreshed on it.
         template<typename BufferTag, typename Record>
-        bool WriteAndBind(RHI::RHIContext& rhiCtx, StagingBuffer& staging, const eastl::vector<Record>& records,
+        void WriteAndBind(RHI::RHIContext& rhiCtx, StagingBuffer& staging, const eastl::vector<Record>& records,
             const char* input, RHI::RHIHandle& taggedSlot)
         {
             const uint64_t byteCount = eastl::max<uint64_t>(records.size(), 1) * sizeof(Record);
@@ -77,7 +83,7 @@ namespace Spark::Render
             RHI::Buffer* buffer = staging.GetBuffer();
             if (!allocation.m_data || !buffer)
             {
-                return false;
+                return;
             }
             if (!records.empty())
             {
@@ -100,7 +106,6 @@ namespace Spark::Render
 
             rhiCtx.AddOrReplace<ShaderBufferUsage>(resource, ShaderBufferUsage{
                 ShaderInputBinding{ kSceneSpaceId, RHI::InputName(input), 0 }, viewDesc });
-            return true;
         }
     }
 
@@ -113,15 +118,20 @@ namespace Spark::Render
         SharedGroupValues values;
         values.m_spaceId = kSceneSpaceId;
         rhiCtx.Add<SharedGroupValues>(m_values, values);
-        rhiCtx.Add<SceneLightCount>(m_values, SceneLightCount{});
+        rhiCtx.Add<SceneLightSlotCount>(m_values, SceneLightSlotCount{});
 
-        // The arrays land in the space0 group, read by shaders straight from host memory.
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
         {
-            StagingBuffer::Descriptor lightDesc;
-            lightDesc.m_name      = ObjectName(SharedInput::Lights);
-            lightDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
-            m_lightBuffer.Init(device, lightDesc);
+            DeviceArray::Descriptor lightDesc;
+            lightDesc.m_name        = ObjectName(SharedInput::Lights);
+            lightDesc.m_elementSize = sizeof(LightRecord);
+            lightDesc.m_capacity    = LightCapacity;
+            lightDesc.m_inputName   = RHI::InputName(SharedInput::Lights);
+            lightDesc.m_spaceId     = kSceneSpaceId;
+            if (m_lightBuffer.Init(rhiCtx, device, lightDesc))
+            {
+                rhiCtx.Add<LightBufferTag>(m_lightBuffer.GetResource());
+            }
         }
         {
             StagingBuffer::Descriptor shadowDesc;
@@ -136,6 +146,102 @@ namespace Spark::Render
             viewDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
             m_viewShadowMapBuffer.Init(device, viewDesc);
         }
+    }
+
+    void SceneBindingSystem::SetUp(PassContext& passContext)
+    {
+        auto* assetManager = Service<Resource::AssetManager>::Get();
+        ASSERT(assetManager, "AssetManager is unregister.");
+        auto loadComputeShader = [&](const char* path) -> Ptr<Resource::ShaderAsset>
+        {
+            const auto assetId = assetManager->MakeAssetId(path);
+            return assetId.IsValid() ? assetManager->LoadAsset<Resource::ShaderAsset>(assetId) : Ptr<Resource::ShaderAsset>{};
+        };
+        const auto clearShader = loadComputeShader("engine://Shaders/Lighting/ClearLightPages.hlsl");
+        const auto updateShader = loadComputeShader("engine://Shaders/ElementUpdate/ElementUpdate.hlsl");
+        if (!clearShader || !updateShader)
+        {
+            LOG_ERROR("[SceneBindingSystem] Failed to load the light page clear or light update shader.");
+            return;
+        }
+
+        SPARK_COMPUTE_PASS(passContext, "SceneLightPageClear")
+            .Queue(RHI::HardwareQueueClass::Graphics)
+            .ComputeShader(clearShader)
+            .Build([this](ComputePassScopes& p)
+            {
+                eastl::vector<uint32_t> pages;
+                for (const auto& change : m_lightBuffer.GetPageChanges())
+                {
+                    if (change.m_occupied)
+                    {
+                        pages.push_back(change.m_page);
+                    }
+                }
+                if (pages.empty())
+                {
+                    return;
+                }
+                eastl::sort(pages.begin(), pages.end());
+
+                const RHI::AttachmentId lightsName("SceneLights");
+                p.Import(lightsName, m_lightBuffer.GetResource());
+                const uint64_t pageSize = m_lightBuffer.GetPageSize();
+                const uint64_t bufferSize = m_lightBuffer.GetByteCount();
+                const auto view = RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(bufferSize));
+                for (size_t first = 0; first < pages.size();)
+                {
+                    size_t end = first + 1;
+                    while (end < pages.size() && pages[end] == pages[end - 1] + 1)
+                    {
+                        ++end;
+                    }
+                    const uint64_t beginByte = uint64_t(pages[first]) * pageSize;
+                    const uint64_t endByte = eastl::min((uint64_t(pages[end - 1]) + 1) * pageSize, bufferSize);
+                    const uint32_t wordCount = static_cast<uint32_t>((endByte - beginByte) / sizeof(uint32_t));
+                    auto scope = p.Scope();
+                    scope.ReadWriteBuffer(lightsName).View(view).Bind(RHI::InputName("g_Elements"));
+                    scope.Constant(RHI::InputName("firstWord"), static_cast<uint32_t>(beginByte / sizeof(uint32_t)));
+                    scope.Constant(RHI::InputName("wordCount"), wordCount);
+                    scope.Dispatch(wordCount);
+                    scope.Close();
+                    first = end;
+                }
+            })
+            .Finalize();
+        SPARK_COMPUTE_PASS(passContext, "SceneLightUpdate")
+            .Queue(RHI::HardwareQueueClass::Graphics)
+            .ComputeShader(updateShader)
+            .Build([this](ComputePassScopes& p)
+            {
+                const ElementUpdateBuffer& updates = m_lightBuffer.GetUpdates();
+                const uint32_t updateCount = updates.GetUpdateCount();
+                if (updateCount == 0)
+                {
+                    return;
+                }
+
+                const RHI::AttachmentId updatesName("SceneLightUpdates");
+                const RHI::AttachmentId lightsName("SceneLights");
+                p.Import(updatesName, updates.GetResource());
+                p.Import(lightsName, m_lightBuffer.GetResource());
+
+                auto scope = p.Scope();
+                scope.ReadBuffer(updatesName)
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(updates.GetByteCount())))
+                    .Bind(RHI::InputName("g_Updates"));
+                scope.ReadWriteBuffer(lightsName)
+                    .View(RHI::BufferViewDescriptor::CreateRaw(0, static_cast<uint32_t>(m_lightBuffer.GetByteCount())))
+                    .Bind(RHI::InputName("g_Elements"));
+                const uint32_t elementWords = updates.GetElementSize() / sizeof(uint32_t);
+                scope.Constant(RHI::InputName("updateCount"), updateCount);
+                scope.Constant(RHI::InputName("elementWords"), elementWords);
+                scope.Constant(RHI::InputName("indicesOffset"), static_cast<uint32_t>(updates.GetIndicesOffset()));
+                scope.Constant(RHI::InputName("elementsOffset"), static_cast<uint32_t>(updates.GetElementsOffset()));
+                scope.Dispatch(updateCount * elementWords);
+                scope.Close();
+            })
+            .Finalize();
     }
 
     void SceneBindingSystem::PackShadowViews(WorldContext& world, RHI::RHIContext& rhiCtx)
@@ -187,24 +293,56 @@ namespace Spark::Render
         });
     }
 
-    void SceneBindingSystem::PackLightData(WorldContext& world)
+    void SceneBindingSystem::AllocateLightSlots(WorldContext& world)
     {
-        // Dense marshal: every live world LightRenderData -> a record. Pure field copy —
-        // direction/position were already resolved by LightSystem (compute vs write).
-        //
-        // DeadTag is excluded because EntityReaper destroys on its own tick, not at the
-        // kill site: between the two, the entity still carries LightRenderData. Without
-        // this the light keeps lighting the scene after deletion, and this loop disagrees
-        // with ShadowViewSystem — which does exclude it — about whether the light exists.
-        m_lights.clear();
-        world.GetView<Light::LightRenderData>(Exclude<DeadTag>).each(
-            [&](Entity entity, const Light::LightRenderData& rd)
+        const auto liveLights = world.GetView<Light::LightRenderData, Light::LightComponent,
+            Transform::WorldTransformMatrix>(Exclude<DeadTag>);
+        for (auto [entity, slot] : world.GetView<LightSlot>().each())
         {
-            LightData& d   = m_lights.push_back();
+            if (!liveLights.contains(entity))
+            {
+                world.Add<RemovedLightSlot>(entity, RemovedLightSlot{ slot.GetIndex(), slot.m_record.m_current });
+            }
+        }
+        for (Entity entity : world.GetView<Light::LightRenderData, Light::LightComponent,
+            Transform::WorldTransformMatrix>(Exclude<LightSlot, DeadTag>))
+        {
+            Suballocation range = m_lightBuffer.Allocate();
+            if (!range.IsValid())
+            {
+                LOG_ERROR("[SceneBindingSystem] All {} light slots are taken.", LightCapacity);
+                return;
+            }
+            world.Add<LightSlot>(entity, LightSlot{ eastl::move(range), {} });
+        }
+    }
+
+    uint32_t SceneBindingSystem::UpdateLights(WorldContext& world)
+    {
+        if (m_lightBuffer.GetResource() == RHI::NullHandle)
+        {
+            return 0;
+        }
+
+        AllocateLightSlots(world);
+        m_lightBuffer.BeginUpdate();
+        for (auto [entity, slot] : world.GetView<RemovedLightSlot>().each())
+        {
+            const LightRecord record{ {}, slot.m_previous };
+            m_lightBuffer.Set(slot.m_index, record);
+            world.Remove<LightSlot>(entity);
+        }
+        uint32_t slotCount = 0;
+        world.GetView<LightSlot, Light::LightRenderData>().each(
+            [&](Entity entity, LightSlot& slot, const Light::LightRenderData& rd)
+        {
+            auto& record = slot.m_record;
+            record.m_previous = record.m_current;
+            LightData& d   = record.m_current;
             d.m_direction  = rd.m_worldDirection;
             d.m_intensity  = rd.m_intensity;
             d.m_color      = rd.m_color;
-            d.m_type       = static_cast<uint32_t>(rd.m_type);
+            d.m_type       = static_cast<uint32_t>(rd.m_type) + 1u;
             d.m_position   = rd.m_worldPosition;
             d.m_invRange   = rd.m_range > 0.0f ? 1.0f / rd.m_range : 0.0f;
             d.m_cosInner   = rd.m_cosInner;
@@ -215,8 +353,6 @@ namespace Spark::Render
             d.m_castShadow = rd.m_castShadow ? 1u : 0u;
             d.m_directionalConeHeight = rd.m_directionalConeHeight;
 
-            // Read from the light: g_Lights is packed by iteration order while the shadow maps
-            // are not, so this is the one place the two index spaces meet.
             const auto* maps      = world.TryGet<ShadowMaps>(entity);
             const auto* refs      = world.TryGet<ShadowViewRefs>(entity);
             d.m_shadowIndex       = maps ? static_cast<int32_t>(maps->First()) : -1;
@@ -224,7 +360,14 @@ namespace Spark::Render
 
             const auto* maskSlot  = world.TryGet<ShadowMaskSlot>(entity);
             d.m_shadowMaskIndex   = maskSlot ? static_cast<int32_t>(maskSlot->m_index) : -1;
+            const uint32_t index = slot.GetIndex();
+            m_lightBuffer.Set(index, record);
+            slotCount = eastl::max(slotCount, index + 1u);
         });
+
+        m_lightBuffer.EndUpdate();
+        world.Clear<RemovedLightSlot>();
+        return slotCount;
     }
 
     SceneBindingSystem::EnvironmentBinding SceneBindingSystem::BindEnvironmentIBL()
@@ -332,12 +475,10 @@ namespace Spark::Render
         }
 
         PackShadowViews(*world, *rhiCtx);
-        PackLightData(*world);
         WriteAndBind<ShadowViewBufferTag>(*rhiCtx, m_shadowViewBuffer, m_shadowViews, SharedInput::ShadowViews, m_shadowViewSlot);
         WriteAndBind<ViewShadowMapBufferTag>(*rhiCtx, m_viewShadowMapBuffer, m_viewShadowMaps, SharedInput::ViewShadowMaps, m_viewShadowMapSlot);
-        const uint32_t lightCount = WriteAndBind<LightBufferTag>(*rhiCtx, m_lightBuffer, m_lights, SharedInput::Lights, m_lightSlot)
-                ? static_cast<uint32_t>(m_lights.size()) : 0;
-        rhiCtx->Get<SceneLightCount>(m_values).m_count = lightCount;
+        const uint32_t lightSlotCount = UpdateLights(*world);
+        rhiCtx->Get<SceneLightSlotCount>(m_values).m_count = lightSlotCount;
 
         // The BRDF LUT is its own table, not part of the sky's set: it is published whether or
         // not there is a skybox, since a pass reads it as soon as the table is there.
@@ -362,13 +503,13 @@ namespace Spark::Render
         // resolution of the shadow map in it.
         PushSharedConstant(*values, RHI::InputName(SharedInput::ShadowTexelSize), 1.0f / static_cast<float>(kShadowMapResolution));
 
-        // g_LightCount rides the SceneConstants cbuffer in the same SRG. Written every frame
+        // g_LightSlotCount rides the SceneConstants cbuffer in the same SRG. Written every frame
         // so the CBV is always compiled: its bind is unguarded in CommandList, unlike the SRV
         // table's, and a missing address trips a hard assert. The shader loop is empty while
         // count is 0.
-        PushSharedConstant(*values, RHI::InputName(SharedInput::LightCount), lightCount);
+        PushSharedConstant(*values, RHI::InputName(SharedInput::LightSlotCount), lightSlotCount);
 
-        // Same unconditional-write rule as g_LightCount; 0 mips is also the shader's gate,
+        // Same unconditional-write rule as g_LightSlotCount; 0 mips is also the shader's gate,
         // since the cubes share g_Lights' table and "unbound" there means stale, not null.
         const EnvironmentBinding env = BindEnvironmentIBL();
         PushSharedConstant(*values, RHI::InputName(SharedInput::PrefilteredMips), env.m_prefilteredMipCount);
@@ -401,10 +542,13 @@ namespace Spark::Render
             rhiCtx.DestoryEntity(m_values);
             m_values = RHI::NullHandle;
         }
-        m_lightBuffer.Shutdown();
+        if (auto* world = WorldExecuteContext::Current())
+        {
+            world->Clear<LightSlot>();
+        }
+        m_lightBuffer.Shutdown(rhiCtx);
         m_shadowViewBuffer.Shutdown();
         m_viewShadowMapBuffer.Shutdown();
-        m_lightSlot = RHI::NullHandle;
         m_shadowViewSlot = RHI::NullHandle;
         m_viewShadowMapSlot = RHI::NullHandle;
     }

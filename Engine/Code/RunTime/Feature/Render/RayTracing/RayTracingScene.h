@@ -17,9 +17,6 @@ namespace Spark::Render
     //! On the shared storage buffer once this frame's TLAS build is scheduled.
     struct RayTracingSceneTag {};
 
-    //! On the same buffer when the immediately preceding frame has a TLAS.
-    struct PreviousRayTracingSceneTag {};
-
     //! Both TLAS objects refer to disjoint ranges of this resource's shared AS buffer.
     //! A pass that binds both imports the buffer once and binds each range explicitly.
     struct RayTracingScene

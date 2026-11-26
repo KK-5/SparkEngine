@@ -308,7 +308,6 @@ namespace Spark::Render
         }
 
         rhiContext->Remove<RayTracingSceneTag>(m_storageResource);
-        rhiContext->Remove<PreviousRayTracingSceneTag>(m_storageResource);
         rhiContext->Remove<AccelerationStructure>(m_storageResource);
 
         auto& scene = rhiContext->Get<RayTracingScene>(m_storageResource);
@@ -318,7 +317,6 @@ namespace Spark::Render
         {
             // The last build stays in place. Reuse the other range on the same Graphics queue.
             scene.m_currentSlot = 1 - scene.m_currentSlot;
-            rhiContext->Add<PreviousRayTracingSceneTag>(m_storageResource);
         }
         if (!world)
         {

@@ -73,6 +73,7 @@ namespace Spark::Render
         m_pool.Shutdown();
         // The elements, all gone, hold it until the device hands them back.
         m_allocator.reset();
+        m_pageChanges.clear();
         m_elements.clear();
         m_known.clear();
     }

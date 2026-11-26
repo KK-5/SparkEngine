@@ -6,7 +6,7 @@
 
 float3 DirectionToLight(LightData light, float3 worldPos)
 {
-    if (light.type == 0)
+    if (light.type == LIGHT_TYPE_DIRECTIONAL)
     {
         return normalize(-light.direction);
     }
@@ -32,7 +32,7 @@ float SpotConeCosineWidth(LightData light)
 // Returns unoccluded incident radiance; L points from the receiver to the light.
 float3 EvaluateLight(LightData light, float3 worldPos, out float3 L)
 {
-    if (light.type == 0)
+    if (light.type == LIGHT_TYPE_DIRECTIONAL)
     {
         L = DirectionToLight(light, worldPos);
         return light.color * light.intensity;
@@ -42,7 +42,7 @@ float3 EvaluateLight(LightData light, float3 worldPos, out float3 L)
     const float dist2 = dot(toLight, toLight);
     L = DirectionToLight(light, worldPos);
     float attenuation = EvaluateLightRangeWindow(light, worldPos) / max(dist2, 1e-4);
-    if (light.type == 2)
+    if (light.type == LIGHT_TYPE_SPOT)
     {
         const float cosAngle = dot(light.direction, -L);
         const float cone = saturate((cosAngle - light.cosOuter) / SpotConeCosineWidth(light));

@@ -66,9 +66,13 @@ float4 PSMain(VSOutput input) : SV_Target0
     float3 V = normalize(eye - worldPos);
 
     float3 color = float3(0.0, 0.0, 0.0);
-    for (uint i = 0; i < g_LightCount; ++i)
+    for (uint i = 0; i < g_LightSlotCount; ++i)
     {
         LightData light = GetLight(i);
+        if (light.type == LIGHT_TYPE_INVALID)
+        {
+            continue;
+        }
         float shadow = 1.0;
         if (light.shadowMaskIndex >= 0)
         {

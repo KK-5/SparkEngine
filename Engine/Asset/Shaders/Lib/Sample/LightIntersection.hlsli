@@ -10,7 +10,7 @@
 bool IntersectRectLight(RayDesc ray, LightData light, out RectangleHit hit)
 {
     hit = (RectangleHit)0;
-    if (light.type != 3u)
+    if (light.type != LIGHT_TYPE_RECT)
     {
         return false;
     }
@@ -36,10 +36,10 @@ bool FindNextRectLightCandidate(inout uint nextLightIndex, out uint lightIndex)
 {
     lightIndex = 0u;
     [loop]
-    while (nextLightIndex < g_LightCount)
+    while (nextLightIndex < g_LightSlotCount)
     {
         const uint index = nextLightIndex++;
-        if (GetLight(index).type == 3u)
+        if (GetLight(index).type == LIGHT_TYPE_RECT)
         {
             lightIndex = index;
             return true;

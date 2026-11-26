@@ -9,8 +9,8 @@ struct ScopeParameters
 {
     uint nodeBase;
     uint leafBase;
-    uint sceneLightCount;
-    uint lightCount;
+    uint sceneLightSlotCount;
+    uint leafCount;
     float sceneRadiusSquared;
 };
 
@@ -25,22 +25,26 @@ float LightLuminance(float3 rgb)
 
 float EstimateSceneLightPower(LightData light)
 {
-    if (light.type == 3u)
+    if (light.type == LIGHT_TYPE_INVALID)
+    {
+        return 0.0;
+    }
+    if (light.type == LIGHT_TYPE_RECT)
     {
         const float area = 4.0 * light.halfWidth * light.halfHeight;
         return area > 0.0 ? PI * area * LightLuminance(light.color * light.intensity) : 0.0;
     }
 
     const float intensity = LightLuminance(light.color * light.intensity);
-    if (light.type == 0u)
+    if (light.type == LIGHT_TYPE_DIRECTIONAL)
     {
         return PI * g_Scope.sceneRadiusSquared * intensity;
     }
-    if (light.type == 1u)
+    if (light.type == LIGHT_TYPE_POINT)
     {
         return 4.0 * PI * intensity;
     }
-    if (light.type == 2u)
+    if (light.type == LIGHT_TYPE_SPOT)
     {
         const float capWidth = 1.0 - light.cosOuter;
         const float coneWidth = SpotConeCosineWidth(light);
@@ -88,13 +92,13 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     }
 
     float weight = 0.0;
-    if (id.x < g_Scope.sceneLightCount)
+    if (id.x < g_Scope.sceneLightSlotCount)
     {
-        weight = EstimateSceneLightPower(g_Lights[id.x]);
+        weight = EstimateSceneLightPower(GetLight(id.x));
     }
-    else if (id.x < g_Scope.lightCount)
+    else if (id.x < g_Scope.leafCount)
     {
-        weight = EstimateEmissiveInstancePower(g_EmissiveInstanceIDs[id.x - g_Scope.sceneLightCount]);
+        weight = EstimateEmissiveInstancePower(g_EmissiveInstanceIDs[id.x - g_Scope.sceneLightSlotCount]);
     }
     g_WeightTree[node] = weight;
 }

@@ -16,8 +16,7 @@ static const float LIGHT_INFINITE_DISTANCE = 3.402823466e+38;
 struct LightReference
 {
     uint Source;
-    // SCENE: g_Lights index. EMISSIVE_INSTANCE: actual g_Instances slot,
-    // NOT the index into g_EmissiveInstanceIDs. References belong to this frame.
+    // SCENE: persistent g_Lights slot. EMISSIVE_INSTANCE: actual g_Instances slot.
     uint Index;
 };
 
@@ -65,13 +64,13 @@ struct LightSample
     bool CastShadow;
 };
 
-// A BRDF hit identifies an instance slot. Find its position in the packed light
-// list before looking up the PMF. A live instance can be absent from that list.
+// A scene light slot is its leaf index. A mesh hit needs the emissive list index
+// before the PMF lookup because a live instance can be absent from that list.
 uint FindLightSelectionIndex(LightReference lightReference, uint emissiveInstanceCount)
 {
     if (lightReference.Source == LIGHT_SOURCE_SCENE)
     {
-        return lightReference.Index < g_LightCount ? lightReference.Index : INVALID_LIGHT_SELECTION_INDEX;
+        return lightReference.Index < g_LightSlotCount ? lightReference.Index : INVALID_LIGHT_SELECTION_INDEX;
     }
     if (lightReference.Source == LIGHT_SOURCE_EMISSIVE_INSTANCE)
     {
@@ -80,18 +79,18 @@ uint FindLightSelectionIndex(LightReference lightReference, uint emissiveInstanc
         {
             if (g_EmissiveInstanceIDs[i] == lightReference.Index)
             {
-                return g_LightCount + i;
+                return g_LightSlotCount + i;
             }
         }
     }
     return INVALID_LIGHT_SELECTION_INDEX;
 }
 
-// Logical concatenation of existing lists; no extra GPU light list is required.
+// Scene slots, including zero-weight holes, precede the packed emissive list.
 LightReference GetLightReferenceFromSelectionIndex(uint lightIndex)
 {
     LightReference lightReference;
-    if (lightIndex < g_LightCount)
+    if (lightIndex < g_LightSlotCount)
     {
         lightReference.Source = LIGHT_SOURCE_SCENE;
         lightReference.Index = lightIndex;
@@ -99,7 +98,7 @@ LightReference GetLightReferenceFromSelectionIndex(uint lightIndex)
     else
     {
         lightReference.Source = LIGHT_SOURCE_EMISSIVE_INSTANCE;
-        lightReference.Index = g_EmissiveInstanceIDs[lightIndex - g_LightCount];
+        lightReference.Index = g_EmissiveInstanceIDs[lightIndex - g_LightSlotCount];
     }
     return lightReference;
 }
@@ -163,13 +162,13 @@ bool EvaluateLightSampleGeometry(LightSamplingContext context, LightSampleLocati
 
     if (location.Light.Source == LIGHT_SOURCE_SCENE)
     {
-        if (location.Light.Index >= g_LightCount)
+        if (location.Light.Index >= g_LightSlotCount)
         {
             return false;
         }
         const LightData light = GetLight(location.Light.Index);
         lightSample.CastShadow = light.castShadow != 0u;
-        if (light.type == 0u)
+        if (light.type == LIGHT_TYPE_DIRECTIONAL)
         {
             if (dot(light.direction, light.direction) == 0.0)
             {
@@ -196,13 +195,13 @@ bool EvaluateLightSampleGeometry(LightSamplingContext context, LightSampleLocati
             }
             return true;
         }
-        else if (light.type == 1u || light.type == 2u)
+        else if (light.type == LIGHT_TYPE_POINT || light.type == LIGHT_TYPE_SPOT)
         {
             lightSample.Position = light.position;
             lightSample.Pdf = 1.0;
             lightSample.IsDelta = true;
         }
-        else if (light.type == 3u)
+        else if (light.type == LIGHT_TYPE_RECT)
         {
             if (light.halfWidth <= 0.0 || light.halfHeight <= 0.0)
             {
@@ -294,13 +293,13 @@ bool ReconstructLightSample(LightSamplingContext context, LightSampleLocation lo
     else
     {
         const LightData light = GetLight(location.Light.Index);
-        if (light.type == 3u)
+        if (light.type == LIGHT_TYPE_RECT)
         {
             // Area-to-solid-angle conversion already accounts for distance falloff.
             lightSample.Radiance = light.color * light.intensity
                 * EvaluateLightRangeWindow(light, context.WorldPosition);
         }
-        else if (light.type == 0u && !lightSample.IsDelta)
+        else if (light.type == LIGHT_TYPE_DIRECTIONAL && !lightSample.IsDelta)
         {
             // Preserve irradiance on a surface facing the cone axis as its size varies.
             const float meanCosine = 1.0 - 0.5 * light.directionalConeHeight;

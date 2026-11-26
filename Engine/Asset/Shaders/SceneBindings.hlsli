@@ -2,7 +2,7 @@
 // the lowest-frequency, most-global tier (one value per frame, shared across all views
 // and passes). Shared engine header — any shader that needs scene lights does:
 //     #include <Shaders/SceneBindings.hlsli>
-// and the engine fills g_Lights / g_LightCount via SceneBindingSystem.
+// and the engine fills g_Lights / g_LightSlotCount via SceneBindingSystem.
 //
 // The spaces of all binding tiers are listed in Render/Binding/BindingSpaces.h.
 #ifndef SPARK_SCENE_BINDINGS_HLSL
@@ -11,9 +11,8 @@
 #include "LightData.hlsli"
 #include <Shaders/Lib/Shadow/ShadowViewData.hlsli>
 
-// The group's layout -- every resource and SceneConstants member below -- is declared again
-// in SceneBindingSystem::Init; change both together.
-StructuredBuffer<LightData> g_Lights : register(t0, space0);
+// The group's layout in SharedGroupLayouts.cpp must match these declarations.
+StructuredBuffer<LightRecord> g_Lights : register(t0, space0);
 
 // Indexed by a shadow map: LightData::shadowIndex plus a cube face. A shadow map nobody holds
 // reads as unshadowed, but never read one without checking shadowIndex >= 0 first.
@@ -46,7 +45,7 @@ SamplerState g_IBLSampler      : register(s0, space0);
 
 cbuffer SceneConstants : register(b0, space0)
 {
-    uint  g_LightCount;               // number of valid entries in g_Lights this frame
+    uint  g_LightSlotCount;           // exclusive upper bound of current slots, including holes
     uint  g_IBLPrefilteredMipCount;   // 0 == no environment bound; see HasEnvironmentIBL
     float g_EnvIntensity;             // SkyboxComponent::m_intensity, or 1 with no skybox
     float g_ShadowMapTexelSize;       // 1 / a shadow map layer's width; the PCF step in UV
@@ -63,9 +62,20 @@ cbuffer SceneConstants : register(b0, space0)
     uint  g_AreaLightLutReady;        // 0 == g_LTC1 / g_LTC2 unbound; see HasAreaLightLut
 };
 
-LightData GetLight(uint i)
+// A slot from a current or immediately previous light sample remains addressable.
+// LIGHT_TYPE_INVALID means that light is absent on the requested side.
+LightData GetLightBySlot(uint slot, bool previousFrame)
 {
-    return g_Lights[i];
+    if (previousFrame)
+    {
+        return g_Lights[slot].previous;
+    }
+    return g_Lights[slot].current;
+}
+
+LightData GetLight(uint slot)
+{
+    return GetLightBySlot(slot, false);
 }
 
 ShadowViewData GetShadowView(int i)

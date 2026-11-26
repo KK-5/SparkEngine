@@ -4,11 +4,17 @@
 #ifndef SPARK_LIGHT_DATA_HLSLI
 #define SPARK_LIGHT_DATA_HLSLI
 
-// 96 bytes. type: 0=directional, 1=point, 2=spot, 3=rect.
+static const uint LIGHT_TYPE_INVALID = 0u;
+static const uint LIGHT_TYPE_DIRECTIONAL = 1u;
+static const uint LIGHT_TYPE_POINT = 2u;
+static const uint LIGHT_TYPE_SPOT = 3u;
+static const uint LIGHT_TYPE_RECT = 4u;
+
+// 96 bytes. A zeroed record has no light.
 struct LightData
 {
     float3 direction; float intensity;   // direction the light shines (world); radiant intensity, or radiance for a rect
-    float3 color;     uint  type;        // rgb; 0=directional, 1=point, 2=spot, 3=rect
+    float3 color;     uint  type;        // rgb and LIGHT_TYPE_*
     float3 position;  float invRange;    // world position, 1/range (0=dir)
     float  cosInner;  float cosOuter;                 // spot cone
     int    shadowIndex;                               // first shadow map and g_ShadowViews row; -1 = none
@@ -17,6 +23,12 @@ struct LightData
     float  halfWidth; float halfHeight;               // rect, world units
     uint   castShadow;                               // authoring switch, independent of shadow-map allocation
     float  directionalConeHeight;                    // 1 - cos(source half-angle)
+};
+
+struct LightRecord
+{
+    LightData current;
+    LightData previous;
 };
 
 #endif // SPARK_LIGHT_DATA_HLSLI

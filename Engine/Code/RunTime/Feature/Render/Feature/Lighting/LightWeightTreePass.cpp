@@ -19,16 +19,16 @@ namespace Spark::Render
     LightWeightTree::Layout LightWeightTree::LayOut(RHI::RHIContext& context)
     {
         Layout layout;
-        for (auto [entity, count] : context.GetView<SceneLightCount>().each())
+        for (auto [entity, count] : context.GetView<SceneLightSlotCount>().each())
         {
-            layout.m_sceneLightCount = count.m_count;
+            layout.m_sceneLightSlotCount = count.m_count;
         }
         for (auto [entity, count] : context.GetView<EmissiveInstanceCount>().each())
         {
             layout.m_emissiveInstanceCount = count.m_count;
         }
-        const uint32_t lightCount = layout.LightCount();
-        layout.m_leafBase = lightCount != 0 ? NextPowerOfTwo(lightCount) : 0;
+        const uint32_t leafCount = layout.LeafCount();
+        layout.m_leafBase = leafCount != 0 ? NextPowerOfTwo(leafCount) : 0;
         return layout;
     }
 
@@ -61,7 +61,7 @@ namespace Spark::Render
                 const RHI::AttachmentId instancesName("LightingInstances");
                 const RHI::AttachmentId geometryName("LightingGeometry");
                 const RHI::AttachmentId materialsName("LightingMaterials");
-                if (layout.m_sceneLightCount != 0 && !p.ImportShared<LightBufferTag>(lightsName))
+                if (layout.m_sceneLightSlotCount != 0 && !p.ImportShared<LightBufferTag>(lightsName))
                 {
                     return;
                 }
@@ -95,7 +95,7 @@ namespace Spark::Render
                 {
                     const bool writeLeaves = nodeBase == layout.m_leafBase;
                     auto scope = p.Scope();
-                    if (writeLeaves && layout.m_sceneLightCount != 0)
+                    if (writeLeaves && layout.m_sceneLightSlotCount != 0)
                     {
                         scope.ReadBuffer(lightsName);
                     }
@@ -111,8 +111,8 @@ namespace Spark::Render
                     tree.View(treeView).Bind(treeInput);
                     scope.Constant(RHI::InputName("nodeBase"), nodeBase);
                     scope.Constant(RHI::InputName("leafBase"), layout.m_leafBase);
-                    scope.Constant(RHI::InputName("sceneLightCount"), layout.m_sceneLightCount);
-                    scope.Constant(RHI::InputName("lightCount"), layout.LightCount());
+                    scope.Constant(RHI::InputName("sceneLightSlotCount"), layout.m_sceneLightSlotCount);
+                    scope.Constant(RHI::InputName("leafCount"), layout.LeafCount());
                     scope.Constant(RHI::InputName("sceneRadiusSquared"), sceneRadiusSquared);
                     scope.Dispatch(nodeBase);
                     scope.Close();

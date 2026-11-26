@@ -58,7 +58,7 @@ float3 EvaluateRectLight(LightData light, float3 worldPos, float3 N, float3 V,
 float3 EvaluateLightResponse(LightData light, float3 worldPos, float3 N, float3 V,
                              float3 diffuseColor, float3 F0, float perceptualRoughness)
 {
-    if (light.type == 3)
+    if (light.type == LIGHT_TYPE_RECT)
     {
         if (!HasAreaLightLut())
         {

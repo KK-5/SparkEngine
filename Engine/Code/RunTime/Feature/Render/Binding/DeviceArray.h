@@ -1,5 +1,6 @@
 #pragma once
 
+#include <EASTL/span.h>
 #include <EASTL/type_traits.h>
 #include <EASTL/vector.h>
 
@@ -70,6 +71,10 @@ namespace Spark::Render
         //! This frame's writes, for the pass that applies them.
         const ElementUpdateBuffer& GetUpdates() const { return m_updates; }
         uint64_t GetByteCount() const { return uint64_t(m_descriptor.m_capacity) * m_descriptor.m_elementSize; }
+        uint64_t GetPageSize() const { return m_pool.GetPageSize(); }
+        //! This frame's page changes. An occupied page may need initialization before an owner
+        //! reads slots it has never written.
+        eastl::span<const Suballocator::PageChange> GetPageChanges() const { return m_pageChanges; }
 
     private:
         void SetBytes(uint32_t index, const void* bytes);

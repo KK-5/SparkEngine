@@ -4,17 +4,33 @@
 #include <Scene/SceneTextureComponents.h>
 
 #include <Pass/TagList.h>
+#include <Suballocation/Suballocator.h>
+
+#include "LightData.h"
 
 namespace Spark::Render
 {
-    //! This frame's g_Lights / g_ShadowViews / g_ViewShadowMaps buffer, on the staging slot it
-    //! was written into. The slots rotate, so each tag follows the one the frame writes.
-    struct LightBufferTag
+    //! Stable g_Lights slot and the last encoded record, on the world light entity.
+    struct LightSlot
     {
+        Suballocation m_range;
+        LightRecord m_record;
+
+        uint32_t GetIndex() const { return static_cast<uint32_t>(m_range.GetOffset() / sizeof(LightRecord)); }
     };
 
-    //! CPU mirror of g_LightCount for passes that size their dispatch by scene lights.
-    struct SceneLightCount
+    //! This frame's removal update for a light slot.
+    struct RemovedLightSlot
+    {
+        uint32_t m_index = 0;
+        LightData m_previous;
+    };
+
+    //! Persistent g_Lights buffer, indexed by light slot.
+    struct LightBufferTag {};
+
+    //! Exclusive upper bound on the current light slots. The range can contain holes.
+    struct SceneLightSlotCount
     {
         uint32_t m_count = 0;
     };
