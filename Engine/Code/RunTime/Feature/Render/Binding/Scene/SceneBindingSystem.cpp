@@ -13,6 +13,7 @@
 
 #include <RHI/RHIInterface.h>
 #include <RHI/Component/Component.h>
+#include <RHI/Context/RHIEventContext.h>
 #include <RHI/Device/Device.h>
 #include <RHI/HardwareQueue.h>
 #include <RHI/ResourceBuilder.h>
@@ -161,6 +162,7 @@ namespace Spark::Render
             viewDesc.m_bindFlags = RHI::BufferBindFlags::ShaderRead;
             m_viewShadowMapBuffer.Init(device, viewDesc);
         }
+        EntityEventBus::Handler::BusConnect();
     }
 
     void SceneBindingSystem::SetUp(PassContext& passContext)
@@ -376,6 +378,32 @@ namespace Spark::Render
         }
     }
 
+    void SceneBindingSystem::OnEntityDestory(Entity entity)
+    {
+        auto* world = WorldExecuteContext::Current();
+        auto* events = RHI::RHIEventExecuteContext::Current();
+        if (!world || !events)
+        {
+            return;
+        }
+
+        // ClearScene destroys the holder before the next light update. Preserve the record
+        // in the event context while the world entity is still readable.
+        const auto queueRemoval = [&](const LightSlot& slot)
+        {
+            events->Add<RemovedLightSlot>(events->CreateEntity(),
+                RemovedLightSlot{ slot.Get(), slot.m_record.m_current });
+        };
+        if (const auto* slot = world->TryGet<LightSlot>(entity))
+        {
+            queueRemoval(*slot);
+        }
+        if (const auto* emitter = world->TryGet<EmissiveLightSlot>(entity))
+        {
+            queueRemoval(emitter->m_slot);
+        }
+    }
+
     uint32_t SceneBindingSystem::UpdateLights(WorldContext& world)
     {
         if (m_lightBuffer.GetResource() == RHI::NullHandle)
@@ -386,6 +414,13 @@ namespace Spark::Render
         AllocateLightSlots(world);
         PrepareEmissiveLights(world);
         m_lightBuffer.BeginUpdate();
+        auto& events = *RHI::RHIEventExecuteContext::Current();
+        auto destroyedLights = events.GetView<RemovedLightSlot>();
+        for (auto [event, slot] : destroyedLights.each())
+        {
+            const LightRecord record{ {}, slot.m_previous };
+            m_lightBuffer.Set(slot.m_index, record);
+        }
         for (auto [entity, slot] : world.GetView<RemovedLightSlot>().each())
         {
             const LightRecord record{ {}, slot.m_previous };
@@ -443,6 +478,7 @@ namespace Spark::Render
         }
 
         m_lightBuffer.EndUpdate();
+        events.DestoryEntity(destroyedLights.begin(), destroyedLights.end());
         world.Clear<RemovedLightSlot, RemovedEmissiveLightSlot>();
         return slotCount;
     }
@@ -614,6 +650,13 @@ namespace Spark::Render
 
     void SceneBindingSystem::Shutdown(RHI::RHIContext& rhiCtx)
     {
+        EntityEventBus::Handler::BusDisconnect();
+        if (auto* events = RHI::RHIEventExecuteContext::Current())
+        {
+            auto destroyedLights = events->GetView<RemovedLightSlot>();
+            events->DestoryEntity(destroyedLights.begin(), destroyedLights.end());
+        }
+
         if (m_values != RHI::NullHandle)
         {
             rhiCtx.DestoryEntity(m_values);

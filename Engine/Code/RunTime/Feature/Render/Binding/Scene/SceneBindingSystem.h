@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ECS/Bus/EntityEventBus.h>
 #include <ECS/WorldContext.h>
 #include <Tick/FrameTime.h>
 
@@ -18,7 +19,7 @@ namespace Spark::Render
 {
     //! Publishes the per-scene inputs in space0. Lights keep their slots across frames.
     //! Shadow views and their map indices are rebuilt after the shadow and view systems run.
-    class SceneBindingSystem
+    class SceneBindingSystem : private EntityEventBus::Handler
     {
     public:
         void Init(RHI::RHIContext& rhiCtx);
@@ -36,6 +37,9 @@ namespace Spark::Render
         void AllocateLightSlots(WorldContext& world);
         void PrepareEmissiveLights(WorldContext& world);
         uint32_t UpdateLights(WorldContext& world);
+
+        void OnEntityCreate(Entity) override {}
+        void OnEntityDestory(Entity entity) override;
 
         struct EnvironmentBinding
         {
