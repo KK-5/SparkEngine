@@ -6,13 +6,14 @@ struct ScopeParameters
 {
     uint viewIndex;
     uint debugMode;
-    uint emissiveInstanceCount;
     uint sampleIndex;
+    uint lightWeightTreeLeafBase;
 };
 #include <Shaders/ScopeBindings.hlsli>
 
 SamplerState g_MaterialSampler : register(s0, space2);
 Texture2D<float4> g_History : register(t0, space2); // RGB: linear HDR mean
+StructuredBuffer<float> g_LightWeightTree : register(t1, space2);
 
 // Scene-scale offsets for this two-meter Cornell Box. PDFs and BRDFs always use
 // the original surface position; only traced rays use the offset origin.
@@ -23,7 +24,6 @@ LightSamplingContext MakeLightSamplingContext(float3 worldPosition)
 {
     LightSamplingContext context;
     context.WorldPosition = worldPosition;
-    context.EmissiveInstanceCount = g_Scope.emissiveInstanceCount;
     context.MaterialMipLevel = 0.0;
     context.TwoSidedEmission = true; // matches EvaluateRayTracingMaterial at hits
     return context;
@@ -52,7 +52,8 @@ float3 TraceReferenceLighting(RayDesc ray, RayTracingHit hit, uint seed, uint ma
         float emissionWeight = 1.0;
         if (any(material.Inputs.EmissiveColor > 0.0))
         {
-            emissionWeight = EvaluateEmissionMISWeight(previousContext, hit, previousBRDFPdf, previousSampleCounts);
+            emissionWeight = EvaluateEmissionMISWeight(previousContext, hit, g_LightWeightTree,
+                g_Scope.lightWeightTreeLeafBase, previousBRDFPdf, previousSampleCounts);
         }
         radiance += throughput * material.Inputs.EmissiveColor * emissionWeight;
 
@@ -64,7 +65,8 @@ float3 TraceReferenceLighting(RayDesc ray, RayTracingHit hit, uint seed, uint ma
         const LightSamplingContext context = MakeLightSamplingContext(surface.WorldPosition);
         const float4 lightRandomSample = SobolBurley4D(g_Scope.sampleIndex, 2u * bounce, seed);
         radiance += throughput * EvaluateDirectLighting(surface, material, V, context,
-            lightRandomSample, g_MaterialSampler, raySettings, sampleCounts);
+            g_LightWeightTree, g_Scope.lightWeightTreeLeafBase, lightRandomSample,
+            g_MaterialSampler, raySettings, sampleCounts);
         if (sampleCounts.BRDFSampleCount == 0u)
         {
             break;

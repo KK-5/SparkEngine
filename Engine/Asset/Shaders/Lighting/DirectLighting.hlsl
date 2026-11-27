@@ -10,7 +10,6 @@
 struct ScopeParameters
 {
     uint viewIndex;
-    uint emissiveInstanceCount;
     uint lightingReady;
     uint lightWeightTreeLeafBase;
 };
@@ -88,7 +87,6 @@ PSOutput PSMain(VSOutput input)
 
     LightSamplingContext context;
     context.WorldPosition = worldPosition;
-    context.EmissiveInstanceCount = g_Scope.emissiveInstanceCount;
     context.MaterialMipLevel = 0.0;
     context.TwoSidedEmission = true; // matches the existing ray-hit emission policy
     RayTracingLightingSettings settings;

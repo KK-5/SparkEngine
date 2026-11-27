@@ -8,17 +8,15 @@ namespace Spark::Render::LightWeightTree
 {
     inline constexpr char BufferName[] = "LightWeightTree";
 
-    //! The root is at 1. Leaves start at m_leafBase, in scene light slot then emissive-list order.
+    //! The root is at 1. Leaves start at m_leafBase, indexed by light slot.
     struct Layout
     {
-        uint32_t m_sceneLightSlotCount = 0;
-        uint32_t m_emissiveInstanceCount = 0;
+        uint32_t m_lightSlotCount = 0;
         uint32_t m_leafBase = 0;
 
-        uint32_t LeafCount() const { return m_sceneLightSlotCount + m_emissiveInstanceCount; }
         uint32_t NodeCount() const { return 2 * m_leafBase; }
     };
 
-    //! Both passes size their views from the scene light slot bound and emissive instance count.
+    //! Consumers size their views from the current light slot bound.
     Layout LayOut(RHI::RHIContext& context);
 }

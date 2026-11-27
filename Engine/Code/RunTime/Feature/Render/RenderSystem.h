@@ -29,7 +29,6 @@
 #include "Geometry/MeshGeometrySystem.h"
 #include "RayTracing/RayTracingSceneSystem.h"
 #include "Scene/SceneTextureSystem.h"
-#include "Material/MaterialTextureSystem.h"
 
 namespace Spark::Render
 {
@@ -88,7 +87,6 @@ namespace Spark::Render
         NRDSystem         m_nrdSystem;
         SceneTextureSystem m_sceneTextureSystem;
         SceneBindingSystem m_sceneBindingSystem;
-        MaterialTextureSystem m_materialTextureSystem;
         MaterialBindingSystem m_materialBindingSystem;
         MeshGeometrySystem    m_meshGeometrySystem;
         GeometryBindingSystem m_geometryBindingSystem;

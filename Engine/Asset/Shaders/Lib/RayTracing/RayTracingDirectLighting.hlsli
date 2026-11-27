@@ -38,16 +38,7 @@ bool SupportsDirectLightingGGXSample(LightSample lightSample, RayTracingLighting
     }
     // Analytic rectangle support is local to this estimator. Do not change the
     // shared capability flag: reference paths do not discover these rectangles.
-    if (lightSample.Location.Light.Source == LIGHT_SOURCE_EMISSIVE_INSTANCE)
-    {
-        return true;
-    }
-    if (lightSample.Location.Light.Source == LIGHT_SOURCE_SCENE)
-    {
-        const LightData light = GetLight(lightSample.Location.Light.Index);
-        return light.type == LIGHT_TYPE_RECT;
-    }
-    return false;
+    return lightSample.Type == LIGHT_TYPE_EMISSIVE_MESH || lightSample.Type == LIGHT_TYPE_RECT;
 }
 
 // A mesh emitter must also be visible along the original sampling direction:
@@ -113,7 +104,7 @@ DirectLightingSample EvaluateDirectLightingLightSample(GeometrySurface surface, 
     {
         return result;
     }
-    if (lightSample.Location.Light.Source == LIGHT_SOURCE_EMISSIVE_INSTANCE)
+    if (lightSample.Type == LIGHT_TYPE_EMISSIVE_MESH)
     {
         if (!TraceDirectLightingMeshVisibility(surface, lightSample, settings))
         {

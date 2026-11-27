@@ -37,26 +37,51 @@
 
 namespace Spark::Render
 {
+    Material::MaterialHandle ResolveInstanceMaterial(WorldContext& world, Material::MaterialContext& materials,
+        Entity entity)
+    {
+        Material::MaterialHandle material = Material::NullMaterial;
+        if (const auto* ref = world.TryGet<MaterialOverrideRef>(entity))
+        {
+            material = ref->m_material;
+        }
+        else if (const auto* component = world.TryGet<Material::MaterialComponent>(entity))
+        {
+            material = component->m_material;
+        }
+        return materials.Valid(material) && materials.Has<Resource::StandardPBR>(material)
+            ? material : Material::GetDefaultMaterial(materials);
+    }
+
+    const Resource::StandardPBR* GetEmissiveMaterial(const Material::MaterialContext& materials,
+        Material::MaterialHandle material)
+    {
+        const auto* params = materials.TryGet<Resource::StandardPBR>(material);
+        if (!params || !materials.Has<MaterialSlot>(material))
+        {
+            return nullptr;
+        }
+        const Math::Vector3 emission = Math::Vector3(params->m_emissive) * params->m_emissiveStrength;
+        return (emission.x > 0.0f || emission.y > 0.0f || emission.z > 0.0f) ? params : nullptr;
+    }
+
     namespace
     {
-
-        uint32_t ResolveTexIndex(
-            RHI::RHIContext& rhiCtx, Material::MaterialContext& matCtx,
-            Material::MaterialHandle h, size_t slot)
+        uint32_t ResolveTexIndex(RHI::RHIContext& rhiCtx, const Material::MaterialContext& materials,
+            Material::MaterialHandle material, size_t slot)
         {
-            auto* tex = matCtx.TryGet<MaterialGPUTextures>(h);
-            if (!tex)
+            const auto* textures = materials.TryGet<MaterialGPUTextures>(material);
+            if (!textures)
             {
                 return InvalidTextureIndex;
             }
-            const RHI::RHIHandle handle = tex->m_handles[slot];
+            const RHI::RHIHandle handle = textures->m_handles[slot];
             if (!RHI::IsResourceReady(rhiCtx, handle))
             {
                 return InvalidTextureIndex;
             }
 
-            // The same view the set's read uses, so the index and the access name one image
-            // view: an index resolved through another view would sample something else.
+            // The same view imported for the graph's bindless reads.
             const auto* usage = rhiCtx.TryGet<ShaderImageUsage>(handle);
             ASSERT(usage != nullptr && usage->m_binding.m_mode == ShaderBindingMode::Bindless,
                 "[MaterialBindingSystem] Material texture publishes no bindless usage.");
@@ -74,6 +99,7 @@ namespace Spark::Render
     void MaterialBindingSystem::Init(RHI::RHIContext& rhiCtx)
     {
         RHI::Device& device = *Service<RHI::RHIInterface>::Get()->GetDevice();
+        m_textureSystem.Init(device);
         DeviceArray::Descriptor arrayDesc;
         arrayDesc.m_name        = ObjectName(SharedInput::Materials);
         arrayDesc.m_elementSize = sizeof(MaterialData);
@@ -231,11 +257,11 @@ namespace Spark::Render
         }
 
         SyncOverrideMaterials();
-
+        m_textureSystem.Update();
         AllocateSlots(*matCtx);
         m_materials.BeginUpdate();
         matCtx->GetView<MaterialSlot, Resource::StandardPBR>(Exclude<DeadTag>).each(
-            [&](Material::MaterialHandle h, const MaterialSlot& slot, const Resource::StandardPBR& params)
+            [&](Material::MaterialHandle h, MaterialSlot& slot, const Resource::StandardPBR& params)
         {
             MaterialData d;
             d.m_baseColor   = params.m_baseColor;
@@ -248,6 +274,7 @@ namespace Spark::Render
             {
                 d.m_texIndices[texSlot] = ResolveTexIndex(*rhiCtx, *matCtx, h, texSlot);
             }
+            slot.m_emissiveTextureIndex = d.m_texIndices[static_cast<size_t>(Resource::MaterialTexSlot::Emissive)];
             m_materials.Set(slot.Get(), d);
         });
         m_materials.EndUpdate();
@@ -300,5 +327,6 @@ namespace Spark::Render
         }
 
         m_materials.Shutdown(rhiCtx);
+        m_textureSystem.Shutdown();
     }
 }

@@ -7,13 +7,14 @@
 
 // This adapter uses only the supplied light data. Rect lights emit on their
 // authored front face, matching EvaluateLightSampleGeometry.
-bool IntersectRectLight(RayDesc ray, LightData light, out RectangleHit hit)
+bool IntersectRectLight(RayDesc ray, LightData data, out RectangleHit hit)
 {
     hit = (RectangleHit)0;
-    if (light.type != LIGHT_TYPE_RECT)
+    if (data.type != LIGHT_TYPE_RECT)
     {
         return false;
     }
+    const AnalyticLightData light = DecodeAnalyticLight(data);
 
     WorldRectangle rectangle;
     rectangle.Center = light.position;
@@ -64,8 +65,7 @@ bool FindNextRectLightIntersection(RayDesc ray, inout uint nextLightIndex,
         RectangleHit hit;
         if (IntersectRectLight(ray, GetLight(lightIndex), hit))
         {
-            location.Light.Source = LIGHT_SOURCE_SCENE;
-            location.Light.Index = lightIndex;
+            location.LightSlotId = lightIndex;
             location.Coordinates = hit.Coordinates;
             hitT = hit.T;
             return true;

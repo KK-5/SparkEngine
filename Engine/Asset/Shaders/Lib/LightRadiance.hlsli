@@ -4,7 +4,7 @@
 
 #include <Shaders/LightData.hlsli>
 
-float3 DirectionToLight(LightData light, float3 worldPos)
+float3 DirectionToLight(AnalyticLightData light, float3 worldPos)
 {
     if (light.type == LIGHT_TYPE_DIRECTIONAL)
     {
@@ -16,21 +16,21 @@ float3 DirectionToLight(LightData light, float3 worldPos)
 
 // The engine's finite-range window. Rect lights use their center distance too;
 // their geometric distance falloff is accounted for by the area integral/PDF.
-float EvaluateLightRangeWindow(LightData light, float3 worldPos)
+float EvaluateLightRangeWindow(AnalyticLightData light, float3 worldPos)
 {
     const float t = length(light.position - worldPos) * light.invRange;
     const float window = saturate(1.0 - t * t * t * t);
     return window * window;
 }
 
-float SpotConeCosineWidth(LightData light)
+float SpotConeCosineWidth(AnalyticLightData light)
 {
     return max(light.cosInner - light.cosOuter, 1e-4);
 }
 
 // Directional, point and spot only. Rect lights must integrate/sample their area.
 // Returns unoccluded incident radiance; L points from the receiver to the light.
-float3 EvaluateLight(LightData light, float3 worldPos, out float3 L)
+float3 EvaluateLight(AnalyticLightData light, float3 worldPos, out float3 L)
 {
     if (light.type == LIGHT_TYPE_DIRECTIONAL)
     {

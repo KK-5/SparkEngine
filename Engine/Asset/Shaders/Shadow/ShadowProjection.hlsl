@@ -77,11 +77,12 @@ float4 PSMain(VSOutput input) : SV_Target0
     // it costs what the lighting loop already costs, and it needs no extra buffer.
     for (uint i = 0; i < g_LightSlotCount; ++i)
     {
-        LightData light = GetLight(i);
-        if (light.type == LIGHT_TYPE_INVALID)
+        const LightData data = GetLight(i);
+        if (!IsAnalyticLight(data.type))
         {
             continue;
         }
+        const AnalyticLightData light = DecodeAnalyticLight(data);
         if (light.shadowMaskIndex < 0 || ShadowMaskSlice(light.shadowMaskIndex) != input.slice)
         {
             continue;

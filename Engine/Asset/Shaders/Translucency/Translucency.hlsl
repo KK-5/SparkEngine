@@ -47,7 +47,7 @@ VSOutput VSMain(VertexFactoryInput input)
 //! Sampled from the shadow maps at the surface itself: the ShadowMask holds the opaque depth's.
 //! Lights with a mask slot are the shadowed ones, as in the Lights pass, and ShadowViewSystem
 //! grants none until the shadow maps exist, so they are bound whenever this reaches them.
-float LightShadow(LightData light, float3 worldPos, float3 N)
+float LightShadow(AnalyticLightData light, float3 worldPos, float3 N)
 {
     if (light.shadowMaskIndex < 0)
     {
@@ -70,11 +70,12 @@ float3 GetForwardDirectLighting(float3 worldPos, float3 N, float3 V,
     float3 color = float3(0.0, 0.0, 0.0);
     for (uint i = 0; i < g_LightSlotCount; ++i)
     {
-        LightData light = GetLight(i);
-        if (light.type == LIGHT_TYPE_INVALID)
+        const LightData data = GetLight(i);
+        if (!IsAnalyticLight(data.type))
         {
             continue;
         }
+        const AnalyticLightData light = DecodeAnalyticLight(data);
         color += EvaluateLightResponse(light, worldPos, N, V, diffuseColor, F0, perceptualRoughness)
                * LightShadow(light, worldPos, N);
     }

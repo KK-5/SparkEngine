@@ -43,7 +43,6 @@ namespace Spark::Render
 
         // space4, the instance tables
         inline constexpr const char* Instances           = "g_Instances";
-        inline constexpr const char* EmissiveInstanceIDs = "g_EmissiveInstanceIDs";
 
         // space6, the geometry tables
         inline constexpr const char* Geometries   = "g_Geometries";

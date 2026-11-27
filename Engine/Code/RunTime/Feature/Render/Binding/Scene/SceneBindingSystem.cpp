@@ -28,6 +28,8 @@
 #include <Binding/SharedGroupLayouts.h>
 #include <Binding/ShaderUsage.h>
 #include <Binding/SharedGroupValues.h>
+#include <Binding/Geometry/GeometryBindingSystem.h>
+#include <Binding/Material/MaterialBinding.h>
 #include <Binding/View/ViewBinding.h>
 #include <Pass/ComputePass.h>
 #include <Pass/CopyPass.h>
@@ -61,6 +63,18 @@ namespace Spark::Render
     namespace
     {
         constexpr uint32_t LightCapacity = 1u << 16;
+
+        uint32_t LightWord(float value)
+        {
+            uint32_t word;
+            memcpy(&word, &value, sizeof(word));
+            return word;
+        }
+
+        eastl::array<uint32_t, 4> PackLightVector(const Math::Vector3& v, uint32_t w)
+        {
+            return { LightWord(v.x), LightWord(v.y), LightWord(v.z), w };
+        }
 
         template<typename Tag>
         RHI::RHIHandle FindLookupTable(RHI::RHIContext& context)
@@ -276,7 +290,7 @@ namespace Spark::Render
         {
             if (!liveLights.contains(entity))
             {
-                world.Add<RemovedLightSlot>(entity, RemovedLightSlot{ slot.GetIndex(), slot.m_record.m_current });
+                world.Add<RemovedLightSlot>(entity, RemovedLightSlot{ slot.Get(), slot.m_record.m_current });
             }
         }
         for (Entity entity : world.GetView<Light::LightRenderData, Light::LightComponent,
@@ -292,6 +306,76 @@ namespace Spark::Render
         }
     }
 
+    void SceneBindingSystem::PrepareEmissiveLights(WorldContext& world)
+    {
+        auto* materials = Material::MaterialExecuteContext::Current();
+        if (!materials)
+        {
+            return;
+        }
+
+        constexpr size_t emissiveTextureSlot = static_cast<size_t>(Resource::MaterialTexSlot::Emissive);
+        const auto readyMeshes = world.GetView<Transform::WorldTransformMatrix, MeshGeometry,
+            GeometrySlot, MeshGeometryReadyTag>(Exclude<DeadTag>);
+        for (Entity entity : readyMeshes)
+        {
+            const auto material = ResolveInstanceMaterial(world, *materials, entity);
+            const auto* params = GetEmissiveMaterial(*materials, material);
+            if (!params)
+            {
+                continue;
+            }
+            const GeometryData geometry = EncodeGeometryData(world.Get<MeshGeometry>(entity));
+            const auto& texture = params->m_textures[emissiveTextureSlot];
+            const uint32_t textureIndex = materials->Get<MaterialSlot>(material).m_emissiveTextureIndex;
+            if (geometry.m_triangleCount == 0 || (texture.IsValid() && textureIndex == InvalidTextureIndex))
+            {
+                continue;
+            }
+
+            LightData current;
+            current.m_type = EmissiveMeshLightType;
+            current.m_color = Math::Vector3(params->m_emissive);
+            current.m_intensity = params->m_emissiveStrength;
+            const auto& model = world.Get<Transform::WorldTransformMatrix>(entity).m_worldMatrix;
+            for (int row = 0; row < 3; ++row)
+            {
+                const Math::Vector4 v = Math::Row(model, row);
+                current.m_typeData[row] = PackLightVector(Math::Vector3(v), LightWord(v.w));
+            }
+            current.m_typeData[3] = { geometry.m_firstIndex, static_cast<uint32_t>(geometry.m_vertexOffset),
+                geometry.m_indexByteStride, geometry.m_triangleCount };
+            current.m_typeDataTail = { 0u, textureIndex, LightWord(geometry.m_localSurfaceArea) };
+
+            auto* emitter = world.TryGet<EmissiveLightSlot>(entity);
+            if (emitter)
+            {
+                const auto& previous = emitter->m_slot.m_record.m_current;
+                if (previous.m_typeData[3] != current.m_typeData[3] || emitter->m_emissiveTexture != texture
+                    || previous.m_typeDataTail[1] != textureIndex)
+                {
+                    world.Add<RemovedEmissiveLightSlot>(entity,
+                        RemovedEmissiveLightSlot{ { emitter->m_slot.Get(), previous } });
+                    world.Remove<EmissiveLightSlot>(entity);
+                    emitter = nullptr;
+                }
+            }
+            if (!emitter)
+            {
+                Suballocation range = m_lightBuffer.Allocate();
+                if (!range.IsValid())
+                {
+                    continue;
+                }
+                emitter = &world.Add<EmissiveLightSlot>(entity, EmissiveLightSlot{ { eastl::move(range), {} }, texture });
+            }
+            auto& record = emitter->m_slot.m_record;
+            record.m_previous = record.m_current;
+            record.m_current = current;
+            emitter->m_activeThisFrame = true;
+        }
+    }
+
     uint32_t SceneBindingSystem::UpdateLights(WorldContext& world)
     {
         if (m_lightBuffer.GetResource() == RHI::NullHandle)
@@ -300,6 +384,7 @@ namespace Spark::Render
         }
 
         AllocateLightSlots(world);
+        PrepareEmissiveLights(world);
         m_lightBuffer.BeginUpdate();
         for (auto [entity, slot] : world.GetView<RemovedLightSlot>().each())
         {
@@ -313,35 +398,52 @@ namespace Spark::Render
         {
             auto& record = slot.m_record;
             record.m_previous = record.m_current;
-            LightData& d   = record.m_current;
-            d.m_direction  = rd.m_worldDirection;
-            d.m_intensity  = rd.m_intensity;
-            d.m_color      = rd.m_color;
-            d.m_type       = static_cast<uint32_t>(rd.m_type) + 1u;
-            d.m_position   = rd.m_worldPosition;
-            d.m_invRange   = rd.m_range > 0.0f ? 1.0f / rd.m_range : 0.0f;
-            d.m_cosInner   = rd.m_cosInner;
-            d.m_cosOuter   = rd.m_cosOuter;
-            d.m_right      = rd.m_worldRight;
-            d.m_halfWidth  = rd.m_halfWidth;
-            d.m_halfHeight = rd.m_halfHeight;
-            d.m_castShadow = rd.m_castShadow ? 1u : 0u;
-            d.m_directionalConeHeight = rd.m_directionalConeHeight;
-
-            const auto* maps      = world.TryGet<ShadowMaps>(entity);
-            const auto* refs      = world.TryGet<ShadowViewRefs>(entity);
-            d.m_shadowIndex       = maps ? static_cast<int32_t>(maps->First()) : -1;
-            d.m_shadowMapCount    = refs ? static_cast<uint32_t>(refs->m_views.size()) : 1;
-
-            const auto* maskSlot  = world.TryGet<ShadowMaskSlot>(entity);
-            d.m_shadowMaskIndex   = maskSlot ? static_cast<int32_t>(maskSlot->m_index) : -1;
-            const uint32_t index = slot.GetIndex();
+            LightData& d = record.m_current;
+            d.m_color = rd.m_color;
+            d.m_type = static_cast<uint32_t>(rd.m_type) + 1u;
+            d.m_intensity = rd.m_intensity;
+            const auto* maps = world.TryGet<ShadowMaps>(entity);
+            const auto* refs = world.TryGet<ShadowViewRefs>(entity);
+            const auto* maskSlot = world.TryGet<ShadowMaskSlot>(entity);
+            d.m_typeData[0] = PackLightVector(rd.m_worldDirection, LightWord(rd.m_directionalConeHeight));
+            d.m_typeData[1] = PackLightVector(rd.m_worldPosition, LightWord(rd.m_range > 0.0f ? 1.0f / rd.m_range : 0.0f));
+            d.m_typeData[2] = { LightWord(rd.m_cosInner), LightWord(rd.m_cosOuter),
+                maps ? static_cast<uint32_t>(maps->First()) : UINT32_MAX,
+                refs ? static_cast<uint32_t>(refs->m_views.size()) : 1u };
+            d.m_typeData[3] = PackLightVector(rd.m_worldRight, maskSlot ? maskSlot->m_index : UINT32_MAX);
+            d.m_typeDataTail = { LightWord(rd.m_halfWidth), LightWord(rd.m_halfHeight), rd.m_castShadow ? 1u : 0u };
+            const uint32_t index = slot.Get();
             m_lightBuffer.Set(index, record);
             slotCount = eastl::max(slotCount, index + 1u);
         });
+        for (auto [entity, emitter] : world.GetView<EmissiveLightSlot>().each())
+        {
+            const uint32_t index = emitter.m_slot.Get();
+            if (!emitter.m_activeThisFrame)
+            {
+                world.Add<RemovedEmissiveLightSlot>(entity,
+                    RemovedEmissiveLightSlot{ { index, emitter.m_slot.m_record.m_current } });
+                continue;
+            }
+            emitter.m_activeThisFrame = false;
+            m_lightBuffer.Set(index, emitter.m_slot.m_record);
+            slotCount = eastl::max(slotCount, index + 1u);
+        }
+        for (auto [entity, removed] : world.GetView<RemovedEmissiveLightSlot>().each())
+        {
+            const auto& slot = removed.m_slot;
+            const LightRecord record{ {}, slot.m_previous };
+            m_lightBuffer.Set(slot.m_index, record);
+            // A replacement on the same entity already holds a different slot.
+            if (const auto* emitter = world.TryGet<EmissiveLightSlot>(entity);
+                emitter && emitter->m_slot.Get() == slot.m_index)
+            {
+                world.Remove<EmissiveLightSlot>(entity);
+            }
+        }
 
         m_lightBuffer.EndUpdate();
-        world.Clear<RemovedLightSlot>();
+        world.Clear<RemovedLightSlot, RemovedEmissiveLightSlot>();
         return slotCount;
     }
 
@@ -519,7 +621,7 @@ namespace Spark::Render
         }
         if (auto* world = WorldExecuteContext::Current())
         {
-            world->Clear<LightSlot>();
+            world->Clear<LightSlot, EmissiveLightSlot>();
         }
         m_lightBuffer.Shutdown(rhiCtx);
         m_shadowViewBuffer.Shutdown();

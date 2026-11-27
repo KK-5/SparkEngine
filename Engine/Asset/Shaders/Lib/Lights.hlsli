@@ -14,7 +14,7 @@
 //
 // The tables come in as parameters, as EnvBRDFLut takes its own; the caller checks
 // HasAreaLightLut before passing them.
-float3 EvaluateRectLight(LightData light, float3 worldPos, float3 N, float3 V,
+float3 EvaluateRectLight(AnalyticLightData light, float3 worldPos, float3 N, float3 V,
                          float3 diffuseColor, float3 F0, float perceptualRoughness,
                          Texture2D ltc1, Texture2D ltc2, SamplerState lutSampler)
 {
@@ -55,7 +55,7 @@ float3 EvaluateRectLight(LightData light, float3 worldPos, float3 N, float3 V,
 
 // The unshadowed outgoing radiance toward V from one light of any type: a rect light
 // integrated over its emitter, any other through its single L.
-float3 EvaluateLightResponse(LightData light, float3 worldPos, float3 N, float3 V,
+float3 EvaluateLightResponse(AnalyticLightData light, float3 worldPos, float3 N, float3 V,
                              float3 diffuseColor, float3 F0, float perceptualRoughness)
 {
     if (light.type == LIGHT_TYPE_RECT)

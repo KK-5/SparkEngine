@@ -15,7 +15,7 @@ struct InstanceData
     uint     PipelineKeyIndex; // what each pass's bin table is addressed by (PipelineKeyIndex.h)
     uint     MotionHistoryValid; // 0 on first appearance, missing history or explicit reset
     // Scalars avoid a uint3 member's stricter alignment on other backends.
-    uint     Padding0;
+    uint     LightSlotId;   // current emissive entry in g_Lights; 0xffffffff when absent
     uint     Padding1;
     uint     Padding2;
 };

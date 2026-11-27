@@ -1,6 +1,8 @@
 #pragma once
 
+#include <ECS/WorldContext.h>
 #include <Material/Components.h>
+#include <Material/MaterialContext.h>
 #include <Material/MaterialHandle.h>
 #include <Material/MaterialTextureComponents.h>
 
@@ -23,8 +25,7 @@ namespace Spark::Render
     };
 
     //! World overrides -> their synthesized material entities, and the reverse for links
-    //! whose override is gone. Free functions because neither needs anything but the two
-    //! execute contexts; MaterialBindingSystem only decides when they run.
+    //! whose override is gone. Called by MaterialBindingSystem before resolving textures.
     void SyncOverrideMaterials();
 
     //! Destroys every material entity wearing DeadTag.
@@ -37,9 +38,16 @@ namespace Spark::Render
     struct MaterialSlot
     {
         Suballocation m_range;
+        //! This frame's resolved index, published for emissive light collection.
+        uint32_t m_emissiveTextureIndex = InvalidTextureIndex;
 
         uint32_t Get() const { return static_cast<uint32_t>(m_range.GetOffset() / sizeof(MaterialData)); }
     };
+
+    Material::MaterialHandle ResolveInstanceMaterial(WorldContext& world, Material::MaterialContext& materials,
+        Entity entity);
+    const Resource::StandardPBR* GetEmissiveMaterial(const Material::MaterialContext& materials,
+        Material::MaterialHandle material);
 
     //! The buffer entity g_Materials is a view of, written in the graph. A pass whose shaders
     //! read g_Materials imports it by this tag and declares the read in each Scope.

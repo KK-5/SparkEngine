@@ -22,7 +22,7 @@ namespace Spark::Render
         uint32_t        m_geometryIndex = 0;   // slot into g_Geometries (space6); only meaningful while m_drawMask is set
         uint32_t        m_pipelineKeyIndex = 0;   // PipelineKeyIndex.h; what each pass's indirect layout table is addressed by
         uint32_t        m_motionHistoryValid = 0; // the previous corresponding surface exists
-        uint32_t        m_padding0 = 0;
+        uint32_t        m_lightSlotId = UINT32_MAX; // current emissive entry in g_Lights, or no slot
         uint32_t        m_padding1 = 0;
         uint32_t        m_padding2 = 0;
     };

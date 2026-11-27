@@ -94,9 +94,6 @@ namespace Spark::Render
             inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
                 RHI::InputName(SharedInput::Instances), RHI::ShaderInputBufferAccess::Read,
                 RHI::ShaderInputBufferType::Structured, 1, 0, 0, kInstanceSpaceId));
-            inputs.m_buffers.push_back(RHI::ShaderInputBufferDescriptor(
-                RHI::InputName(SharedInput::EmissiveInstanceIDs), RHI::ShaderInputBufferAccess::Read,
-                RHI::ShaderInputBufferType::Structured, 1, 0, 1, kInstanceSpaceId));
             return inputs;
         }
 

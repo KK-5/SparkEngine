@@ -1,15 +1,11 @@
-#include <Shaders/GeometryBindings.hlsli>
-#include <Shaders/InstanceBindings.hlsli>
 #include <Shaders/Lib/BRDF/Constants.hlsli>
 #include <Shaders/Lib/LightRadiance.hlsli>
-#include <Shaders/MaterialBindings.hlsli>
 #include <Shaders/SceneBindings.hlsli>
 
 struct ScopeParameters
 {
     uint nodeBase;
     uint leafBase;
-    uint sceneLightSlotCount;
     uint leafCount;
     float sceneRadiusSquared;
 };
@@ -23,12 +19,8 @@ float LightLuminance(float3 rgb)
     return max(dot(rgb, float3(0.2126, 0.7152, 0.0722)), 0.0);
 }
 
-float EstimateSceneLightPower(LightData light)
+float EstimateAnalyticLightPower(AnalyticLightData light)
 {
-    if (light.type == LIGHT_TYPE_INVALID)
-    {
-        return 0.0;
-    }
     if (light.type == LIGHT_TYPE_RECT)
     {
         const float area = 4.0 * light.halfWidth * light.halfHeight;
@@ -57,15 +49,11 @@ float EstimateSceneLightPower(LightData light)
     return 0.0;
 }
 
-float EstimateEmissiveInstancePower(uint instanceIndex)
+float EstimateEmissiveLightPower(EmissiveLightData light)
 {
-    const InstanceData instance = GetInstanceData(instanceIndex);
-    const float area = g_Geometries[instance.GeometryIndex].LocalSurfaceArea;
-    const float4 emission = GetMaterialData(instance.MaterialIndex).Emissive;
-
     // The local area alone cannot recover triangle orientations. Use the mean area scale
     // of the three coordinate planes, which is exact for a uniform scale.
-    const float3x3 model = (float3x3)instance.Model;
+    const float3x3 model = (float3x3)light.model;
     const float3 x = mul(model, float3(1.0, 0.0, 0.0));
     const float3 y = mul(model, float3(0.0, 1.0, 0.0));
     const float3 z = mul(model, float3(0.0, 0.0, 1.0));
@@ -73,7 +61,7 @@ float EstimateEmissiveInstancePower(uint instanceIndex)
 
     // Direct lighting treats emissive meshes as two-sided. The material factor estimates
     // emission here, while the actual lighting sample evaluates the emissive texture.
-    return 2.0 * PI * area * areaScale * LightLuminance(emission.rgb * emission.a);
+    return 2.0 * PI * light.geometry.LocalSurfaceArea * areaScale * LightLuminance(light.color * light.intensity);
 }
 
 [numthreads(64, 1, 1)]
@@ -92,13 +80,17 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     }
 
     float weight = 0.0;
-    if (id.x < g_Scope.sceneLightSlotCount)
+    if (id.x < g_Scope.leafCount)
     {
-        weight = EstimateSceneLightPower(GetLight(id.x));
-    }
-    else if (id.x < g_Scope.leafCount)
-    {
-        weight = EstimateEmissiveInstancePower(g_EmissiveInstanceIDs[id.x - g_Scope.sceneLightSlotCount]);
+        const LightData light = GetLight(id.x);
+        if (light.type == LIGHT_TYPE_EMISSIVE_MESH)
+        {
+            weight = EstimateEmissiveLightPower(DecodeEmissiveLight(light));
+        }
+        else if (IsAnalyticLight(light.type))
+        {
+            weight = EstimateAnalyticLightPower(DecodeAnalyticLight(light));
+        }
     }
     g_WeightTree[node] = weight;
 }

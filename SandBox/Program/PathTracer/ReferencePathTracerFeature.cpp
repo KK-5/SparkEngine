@@ -9,6 +9,7 @@
 #include <RHI/Pipeline/InputStreamLayoutBuilder.h>
 #include <RHI/Pipeline/RenderStates.h>
 #include <RHI/RHIInterface.h>
+#include <RHI/Resource/Buffer/BufferViewDescriptor.h>
 #include <RHI/Resource/Image/ImageDescriptor.h>
 #include <RHI/Resource/Sampler/SamplerState.h>
 #include <Window/IWindowSystem.h>
@@ -18,6 +19,8 @@
 #include <Binding/Material/MaterialBinding.h>
 #include <Binding/Scene/SceneBinding.h>
 #include <Binding/View/ViewBinding.h>
+#include <Feature/Lighting/LightWeightTree.h>
+#include <Feature/Lighting/LightWeightTreePass.h>
 #include <Geometry/MeshGeometry.h>
 #include <Pass/RenderPass.h>
 #include <RayTracing/RayTracingScene.h>
@@ -69,6 +72,9 @@ namespace Spark::SandBox
 
     void ReferencePathTracerFeature::CreatePasses()
     {
+        auto& passContext = *Render::PassExecuteContext::Current();
+        Render::LightWeightTreePass::SetUp(passContext);
+
         RHI::RenderTargetLayout targets;
         targets.m_colorAttachmentCount = 1;
         targets.m_colorFormats[0] = RHI::Format::R32G32B32A32_FLOAT;
@@ -80,7 +86,7 @@ namespace Spark::SandBox
         states.m_depthStencilState.m_stencil.m_enable = 0;
         states.m_rasterState.m_cullMode = RHI::CullMode::None;
 
-        SPARK_RENDER_PASS(*Render::PassExecuteContext::Current(), "ReferencePathTracer")
+        SPARK_RENDER_PASS(passContext, "ReferencePathTracer")
             .Queue(RHI::HardwareQueueClass::Graphics)
             .VertexShader(m_shader)
             .FragmentShader(m_shader)
@@ -97,7 +103,7 @@ namespace Spark::SandBox
                 const RHI::AttachmentId geometries("ReferenceGeometries");
                 const RHI::AttachmentId mesh("ReferenceMeshGeometry");
                 const RHI::AttachmentId materials("ReferenceMaterials");
-                const RHI::AttachmentId emissiveIDs("ReferenceEmissiveInstances");
+                const RHI::AttachmentId lights("SceneLights");
                 const auto size = p.GetOutputSize();
                 p.CreateImage(accumulation, RHI::ImageDescriptor::Create2D(
                     RHI::ImageBindFlags::Color | RHI::ImageBindFlags::ShaderRead,
@@ -108,16 +114,9 @@ namespace Spark::SandBox
                 const bool hasGeometries = p.ImportShared<Render::GeometryPoolTag>(geometries);
                 const bool hasMesh = p.ImportShared<Render::MeshGeometryPoolTag>(mesh);
                 const bool hasMaterials = p.ImportShared<Render::MaterialPoolTag>(materials);
-                const bool hasEmissiveIDs = p.ImportShared<Render::EmissiveInstanceIDBufferTag>(emissiveIDs);
+                const bool hasLights = p.ImportShared<Render::LightBufferTag>(lights);
                 p.ImportSharedSet<Render::MaterialTextureTag>(RHI::AttachmentId("MaterialTextures"));
-                uint32_t emissiveCount = 0;
-                if (hasEmissiveIDs)
-                {
-                    for (auto [entity, count] : RHI::RHIExecuteContext::Current()->GetView<Render::EmissiveInstanceCount>().each())
-                    {
-                        emissiveCount = count.m_count;
-                    }
-                }
+                const auto lightLayout = Render::LightWeightTree::LayOut(*RHI::RHIExecuteContext::Current());
 
                 RHI::AttachmentLoadStoreAction clear;
                 clear.m_loadAction = RHI::AttachmentLoadAction::Clear;
@@ -129,7 +128,7 @@ namespace Spark::SandBox
                 scope.RenderTarget(accumulation, clear);
                 scope.ReadPreviousImage(accumulation)
                     .Bind(RHI::InputName("g_History"));
-                if (hasScene && hasInstances && hasGeometries && hasMesh && hasMaterials)
+                if (hasScene && hasInstances && hasGeometries && hasMesh && hasMaterials && hasLights)
                 {
                     scope.ReadAccelerationStructure(scene);
                     scope.ReadBuffer(instances);
@@ -138,12 +137,15 @@ namespace Spark::SandBox
                     // one shader as both stages, so naming one here would narrow it.
                     scope.ReadBuffer(mesh);
                     scope.ReadBuffer(materials);
-                    if (hasEmissiveIDs)
+                    scope.ReadBuffer(lights);
+                    if (lightLayout.m_leafBase != 0)
                     {
-                        scope.ReadBuffer(emissiveIDs);
+                        scope.ReadBuffer(RHI::AttachmentId(Render::LightWeightTree::BufferName))
+                            .View(RHI::BufferViewDescriptor::CreateStructured(0, lightLayout.NodeCount(), sizeof(float)))
+                            .Bind(RHI::InputName("g_LightWeightTree"));
                     }
                     scope.Constant(RHI::InputName("debugMode"), m_debugMode);
-                    scope.Constant(RHI::InputName("emissiveInstanceCount"), emissiveCount);
+                    scope.Constant(RHI::InputName("lightWeightTreeLeafBase"), lightLayout.m_leafBase);
                     scope.Constant(RHI::InputName("sampleIndex"), m_sampleIndex++);
                     scope.Sampler(RHI::InputName("g_MaterialSampler"), RHI::SamplerState::Create(
                         RHI::FilterMode::Linear, RHI::FilterMode::Linear, RHI::AddressMode::Wrap));

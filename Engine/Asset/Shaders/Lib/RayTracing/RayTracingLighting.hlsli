@@ -91,7 +91,7 @@ bool QueryNextVisibleRectLight(GeometrySurface surface, LightSamplingContext con
     while (FindNextRectLightIntersection(ray, nextLightIndex, location, hitT))
     {
         LightSample candidate;
-        if (!ReconstructLightSample(context, location, materialSampler, candidate))
+        if (!ReconstructLightSample(context, location, GetLight(location.LightSlotId), materialSampler, candidate))
         {
             continue;
         }
@@ -113,11 +113,10 @@ bool QueryNextVisibleRectLight(GeometrySurface surface, LightSamplingContext con
     return false;
 }
 
-LightSampleLocation MakeEmissiveLightSampleLocation(RayTracingHit hit)
+LightSampleLocation MakeEmissiveLightSampleLocation(RayTracingHit hit, uint lightSlotId)
 {
     LightSampleLocation location = (LightSampleLocation)0;
-    location.Light.Source = LIGHT_SOURCE_EMISSIVE_INSTANCE;
-    location.Light.Index = hit.InstanceIndex;
+    location.LightSlotId = lightSlotId;
     location.PrimitiveIndex = hit.PrimitiveIndex;
     location.Coordinates = hit.Barycentrics;
     return location;
@@ -131,8 +130,29 @@ bool ReconstructEmissiveLightSample(LightSamplingContext context, RayTracingHit 
                                     SamplerState materialSampler, out LightSample lightSample)
 {
     lightSample = (LightSample)0;
+    const InstanceData instance = GetInstanceData(hit.InstanceIndex);
+    const LightSampleLocation location = MakeEmissiveLightSampleLocation(hit, instance.LightSlotId);
     LightSample candidate;
-    if (!ReconstructLightSample(context, MakeEmissiveLightSampleLocation(hit), materialSampler, candidate))
+    if (location.LightSlotId == INVALID_LIGHT_SLOT)
+    {
+        // A hit still emits if its instance has no entry in the light sampler.
+        const MaterialData material = GetMaterialData(instance.MaterialIndex);
+        if (!any(material.Emissive.rgb * material.Emissive.a > 0.0))
+        {
+            return false;
+        }
+        EmissiveLightData light;
+        light.model = instance.Model;
+        light.geometry = g_Geometries[instance.GeometryIndex];
+        light.color = material.Emissive.rgb;
+        light.intensity = material.Emissive.a;
+        light.textureIndex = material.TexIndices[SPARK_TEX_SLOT_EMISSIVE];
+        if (!ReconstructEmissiveMeshSample(context, location, light, materialSampler, candidate))
+        {
+            return false;
+        }
+    }
+    else if (!ReconstructLightSample(context, location, GetLight(location.LightSlotId), materialSampler, candidate))
     {
         return false;
     }
@@ -231,11 +251,12 @@ float3 EvaluateDirectLighting(GeometrySurface surface, RayTracingMaterial materi
 
 // Adapts a ray hit to the light sampler's representation. Unknown/noncandidate
 // emitters return zero through EvaluateLightPdf. Integrators need not construct
-// LightReference/LightSampleLocation or know how the selection list is stored.
+// LightSampleLocation or know how the sampler stores its lights.
 float EvaluateLightPdfAtHit(LightSamplingContext context, RayTracingHit hit,
     StructuredBuffer<float> weightTree, uint leafBase)
 {
-    return EvaluateLightPdf(context, MakeEmissiveLightSampleLocation(hit), weightTree, leafBase);
+    const uint lightSlotId = GetInstanceData(hit.InstanceIndex).LightSlotId;
+    return EvaluateLightPdf(context, MakeEmissiveLightSampleLocation(hit, lightSlotId), weightTree, leafBase);
 }
 
 float EvaluateEmissionMISWeight(LightSamplingContext previousContext, RayTracingHit hit,

@@ -83,10 +83,8 @@ namespace Spark::Render
                 const bool hasGeometry = p.ImportShared<GeometryPoolTag>(RHI::AttachmentId("LightingGeometry"));
                 const bool hasMesh = p.ImportShared<MeshGeometryPoolTag>(RHI::AttachmentId("LightingMesh"));
                 const bool hasMaterials = p.ImportShared<MaterialPoolTag>(RHI::AttachmentId("LightingMaterials"));
-                const bool hasEmitters = p.ImportShared<EmissiveInstanceIDBufferTag>(RHI::AttachmentId("LightingEmitters"));
                 p.ImportSharedSet<MaterialTextureTag>(RHI::AttachmentId("MaterialTextures"));
                 const auto lightLayout = LightWeightTree::LayOut(*RHI::RHIExecuteContext::Current());
-                const uint32_t emissiveCount = hasEmitters ? lightLayout.m_emissiveInstanceCount : 0;
                 const bool ready = hasLights && hasScene && hasInstances && hasGeometry && hasMesh && hasMaterials;
                 const auto size = p.GetRenderSize();
                 auto scope = p.Scope();
@@ -131,10 +129,6 @@ namespace Spark::Render
                     scope.ReadBuffer(RHI::AttachmentId("LightingMaterials"));
                     // Bindless textures have no directly bound input to infer from.
                     scope.ReadSet(RHI::AttachmentId("MaterialTextures")).Stage(RHI::AttachmentStage::FragmentShader);
-                    if (hasEmitters)
-                    {
-                        scope.ReadBuffer(RHI::AttachmentId("LightingEmitters"));
-                    }
                     if (lightLayout.m_leafBase != 0)
                     {
                         lightWeightTreeLeafBase = lightLayout.m_leafBase;
@@ -143,7 +137,6 @@ namespace Spark::Render
                             .Bind(RHI::InputName("g_LightWeightTree"));
                     }
                 }
-                scope.Constant(RHI::InputName("emissiveInstanceCount"), emissiveCount);
                 scope.Constant(RHI::InputName("lightingReady"), ready ? 1u : 0u);
                 scope.Constant(RHI::InputName("lightWeightTreeLeafBase"), lightWeightTreeLeafBase);
                 scope.Sampler(RHI::InputName("g_MaterialSampler"), RHI::SamplerState::Create(

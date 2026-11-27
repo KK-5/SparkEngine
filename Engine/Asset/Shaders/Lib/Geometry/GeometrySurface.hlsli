@@ -16,13 +16,13 @@ struct WorldTriangle
     float Area;
 };
 
-WorldTriangle TransformMeshTriangle(InstanceData instance, MeshTriangle meshTriangle)
+WorldTriangle TransformMeshTriangle(float4x4 model, MeshTriangle meshTriangle)
 {
     WorldTriangle world;
-    world.Position0 = mul(instance.Model, float4(meshTriangle.Vertex0.Position, 1.0)).xyz;
+    world.Position0 = mul(model, float4(meshTriangle.Vertex0.Position, 1.0)).xyz;
     // Transform local differences rather than subtracting translated world positions.
-    world.Edge1 = mul((float3x3)instance.Model, meshTriangle.Vertex1.Position - meshTriangle.Vertex0.Position);
-    world.Edge2 = mul((float3x3)instance.Model, meshTriangle.Vertex2.Position - meshTriangle.Vertex0.Position);
+    world.Edge1 = mul((float3x3)model, meshTriangle.Vertex1.Position - meshTriangle.Vertex0.Position);
+    world.Edge2 = mul((float3x3)model, meshTriangle.Vertex2.Position - meshTriangle.Vertex0.Position);
     const float3 crossEdges = cross(world.Edge1, world.Edge2);
     const float twiceArea = length(crossEdges);
     world.Area = 0.5 * twiceArea;
@@ -47,7 +47,7 @@ GeometrySurface InterpolateGeometrySurface(
     InstanceData instance, MeshTriangle meshTriangle, float2 barycentrics)
 {
     const float3 weights = GetTriangleBarycentricWeights(barycentrics);
-    const WorldTriangle world = TransformMeshTriangle(instance, meshTriangle);
+    const WorldTriangle world = TransformMeshTriangle(instance.Model, meshTriangle);
     const float3 localNormal = meshTriangle.Vertex0.Normal * weights.x
         + meshTriangle.Vertex1.Normal * weights.y + meshTriangle.Vertex2.Normal * weights.z;
     const float4 localTangent = meshTriangle.Vertex0.Tangent * weights.x

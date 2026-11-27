@@ -34,6 +34,7 @@ namespace Spark::Render
         void PackShadowViews(WorldContext& world, RHI::RHIContext& rhiCtx);
 
         void AllocateLightSlots(WorldContext& world);
+        void PrepareEmissiveLights(WorldContext& world);
         uint32_t UpdateLights(WorldContext& world);
 
         struct EnvironmentBinding

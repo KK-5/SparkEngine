@@ -54,20 +54,6 @@ namespace Spark::Render
     //! instance reads it as g_InstanceIDs.
     struct InstanceIDBufferTag {};
 
-    //! Packed references to geometry-ready instances whose effective material has a
-    //! positive emissive factor * strength. Textures are evaluated at the sampled point;
-    //! an all-black emissive texture may therefore still have an entry. No triangle data
-    //! or material parameters are duplicated here. Readers import and declare a buffer read.
-    struct EmissiveInstanceIDBufferTag {};
-
-    //! On the same RHI entity as ActiveInstanceCount. Only this prefix of the emissive
-    //! ID buffer is valid. Consumers pass the count to their shaders just like the active
-    //! instance count; BufferView's capacity is not the current count.
-    struct EmissiveInstanceCount
-    {
-        uint32_t m_count = 0;
-    };
-
     //! World-space bounds of this frame's geometry-ready opaque instances, published
     //! alongside the instance counts. An empty scene has no valid bounds.
     struct OpaqueSceneBounds

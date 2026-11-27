@@ -3,6 +3,7 @@
 #include <Binding/Geometry/GeometryBinding.h>
 #include <Binding/Instance/InstanceBindingSystem.h>
 #include <Binding/Material/MaterialBinding.h>
+#include <Binding/Scene/SceneBinding.h>
 #include <Material/MaterialUtils.h>
 #include <Resource/Image/ImageAsset.h>
 
@@ -75,22 +76,28 @@ protected:
         world.Add<Material::MaterialComponent>(entity, Material::MaterialComponent{material});
         return entity;
     }
+
+    bool HasEmissiveMaterial(Entity entity)
+    {
+        const auto material = ResolveInstanceMaterial(world, materials, entity);
+        return GetEmissiveMaterial(materials, material) != nullptr;
+    }
 };
 
 TEST_F(InstanceBindingSystemTest, EmissionUsesRgbAndStrengthAndIgnoresTheColorAlpha)
 {
     const auto material = AddMaterial(Math::Color(0.0f, 0.0f, 0.0f, 1.0f));
     const Entity entity = AddInstance(material);
-    EXPECT_FALSE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_FALSE(HasEmissiveMaterial(entity));
 
     auto& params = materials.Get<Resource::StandardPBR>(material);
     params.m_emissive = Math::Color(0.0f, 2.0f, 0.0f, 0.0f);
-    EXPECT_TRUE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_TRUE(HasEmissiveMaterial(entity));
 
     params.m_emissiveStrength = 0.0f;
-    EXPECT_FALSE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_FALSE(HasEmissiveMaterial(entity));
     params.m_emissiveStrength = 3.0f;
-    EXPECT_TRUE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_TRUE(HasEmissiveMaterial(entity));
 }
 
 TEST_F(InstanceBindingSystemTest, TextureReferencesDoNotReplaceTheEmissiveFactorTest)
@@ -100,20 +107,19 @@ TEST_F(InstanceBindingSystemTest, TextureReferencesDoNotReplaceTheEmissiveFactor
     params.m_textures[static_cast<size_t>(Resource::MaterialTexSlot::Emissive)] =
         Resource::AssetId::Of<Resource::ImageAsset>("engine://Image/Emissive.png");
     const Entity entity = AddInstance(material);
-    // Candidate collection needs no texture residency or CPU texel inspection.
-    EXPECT_TRUE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_TRUE(HasEmissiveMaterial(entity));
     params.m_emissive = Math::Color(0.0f, 0.0f, 0.0f, 1.0f);
-    EXPECT_FALSE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_FALSE(HasEmissiveMaterial(entity));
 }
 
 TEST_F(InstanceBindingSystemTest, MissingGpuMaterialSlotDelaysCandidateCollection)
 {
     const auto material = AddMaterial(Math::Color(1.0f, 0.0f, 0.0f, 1.0f), 1.0f, false);
     const Entity entity = AddInstance(material);
-    EXPECT_FALSE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_FALSE(HasEmissiveMaterial(entity));
     AddMaterialSlot(material);
     const auto encoded = EncodeInstanceData(world, entity);
-    EXPECT_TRUE(encoded.m_emissive);
+    EXPECT_TRUE(HasEmissiveMaterial(entity));
     EXPECT_EQ(encoded.m_data.m_materialIndex, materials.Get<MaterialSlot>(material).Get());
 }
 
@@ -121,12 +127,11 @@ TEST_F(InstanceBindingSystemTest, GeometryMustHaveItsSlotAndBeUploaded)
 {
     const Entity entity = AddInstance(AddMaterial(Math::Color(1.0f, 0.0f, 0.0f, 1.0f)));
     world.Remove<MeshGeometryReadyTag>(entity);
-    EXPECT_FALSE(EncodeInstanceData(world, entity).m_emissive);
     EXPECT_EQ(EncodeInstanceData(world, entity).m_data.m_drawMask, 0u);
     world.Add<MeshGeometryReadyTag>(entity);
-    EXPECT_TRUE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_NE(EncodeInstanceData(world, entity).m_data.m_drawMask, 0u);
     world.Remove<GeometrySlot>(entity);
-    EXPECT_FALSE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_EQ(EncodeInstanceData(world, entity).m_data.m_drawMask, 0u);
 }
 
 TEST_F(InstanceBindingSystemTest, MaterialChangesUseTheSameSlotAsTheInstanceRecord)
@@ -134,10 +139,10 @@ TEST_F(InstanceBindingSystemTest, MaterialChangesUseTheSameSlotAsTheInstanceReco
     const auto light = AddMaterial(Math::Color(1.0f, 1.0f, 1.0f, 1.0f));
     const auto dark = AddMaterial(Math::Color(0.0f, 0.0f, 0.0f, 1.0f));
     const Entity entity = AddInstance(light);
-    EXPECT_TRUE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_TRUE(HasEmissiveMaterial(entity));
     world.Get<Material::MaterialComponent>(entity).m_material = dark;
     const auto encoded = EncodeInstanceData(world, entity);
-    EXPECT_FALSE(encoded.m_emissive);
+    EXPECT_FALSE(HasEmissiveMaterial(entity));
     EXPECT_EQ(encoded.m_data.m_materialIndex, materials.Get<MaterialSlot>(dark).Get());
 }
 
@@ -150,17 +155,17 @@ TEST_F(InstanceBindingSystemTest, OverridesShadowTheReferencedMaterialsEmission)
     const auto overrideMaterial = world.Get<MaterialOverrideRef>(entity).m_material;
     AddMaterialSlot(overrideMaterial);
     auto encoded = EncodeInstanceData(world, entity);
-    EXPECT_FALSE(encoded.m_emissive);
+    EXPECT_FALSE(HasEmissiveMaterial(entity));
     EXPECT_EQ(encoded.m_data.m_materialIndex, materials.Get<MaterialSlot>(overrideMaterial).Get());
 
     world.Get<Material::StandardPBROverride>(entity).m_emissive = Math::Color(0.0f, 0.0f, 2.0f, 1.0f);
     SyncOverrideMaterials();
-    EXPECT_TRUE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_TRUE(HasEmissiveMaterial(entity));
 
     world.Remove<Material::StandardPBROverride>(entity);
     SyncOverrideMaterials();
     encoded = EncodeInstanceData(world, entity);
-    EXPECT_TRUE(encoded.m_emissive);
+    EXPECT_TRUE(HasEmissiveMaterial(entity));
     EXPECT_EQ(encoded.m_data.m_materialIndex, materials.Get<MaterialSlot>(light).Get());
 }
 
@@ -170,24 +175,29 @@ TEST_F(InstanceBindingSystemTest, DanglingOrMissingMaterialReferencesUseTheDefau
     const Entity entity = AddInstance(material);
     materials.DestoryEntity(material);
     auto encoded = EncodeInstanceData(world, entity);
-    EXPECT_FALSE(encoded.m_emissive);
+    EXPECT_FALSE(HasEmissiveMaterial(entity));
     EXPECT_EQ(encoded.m_data.m_materialIndex, materials.Get<MaterialSlot>(defaultMaterial).Get());
 
     world.Remove<Material::MaterialComponent>(entity);
     materials.Get<Resource::StandardPBR>(defaultMaterial).m_emissive = Math::Color(1.0f, 0.0f, 0.0f, 1.0f);
-    EXPECT_TRUE(EncodeInstanceData(world, entity).m_emissive);
+    EXPECT_TRUE(HasEmissiveMaterial(entity));
 }
 
-TEST_F(InstanceBindingSystemTest, SharedMaterialsClassifyEachInstanceIndependently)
+TEST_F(InstanceBindingSystemTest, SharedMaterialsKeepIndependentLightSlots)
 {
     const auto material = AddMaterial(Math::Color(1.0f, 1.0f, 1.0f, 1.0f));
     const Entity a = AddInstance(material);
     const Entity b = AddInstance(material);
-    EXPECT_TRUE(EncodeInstanceData(world, a).m_emissive);
-    EXPECT_TRUE(EncodeInstanceData(world, b).m_emissive);
-    world.Remove<MeshGeometryReadyTag>(a);
-    EXPECT_FALSE(EncodeInstanceData(world, a).m_emissive);
-    EXPECT_TRUE(EncodeInstanceData(world, b).m_emissive);
+    Ptr<Suballocator> lightSlots = new Suballocator(device, 2 * sizeof(LightRecord));
+    world.Add<EmissiveLightSlot>(a, EmissiveLightSlot{ { lightSlots->Allocate(sizeof(LightRecord)), {} }, {} });
+    world.Add<EmissiveLightSlot>(b, EmissiveLightSlot{ { lightSlots->Allocate(sizeof(LightRecord)), {} }, {} });
+    const uint32_t lightSlotA = world.Get<EmissiveLightSlot>(a).m_slot.Get();
+    const uint32_t lightSlotB = world.Get<EmissiveLightSlot>(b).m_slot.Get();
+    EXPECT_EQ(EncodeInstanceData(world, a).m_data.m_lightSlotId, lightSlotA);
+    EXPECT_EQ(EncodeInstanceData(world, b).m_data.m_lightSlotId, lightSlotB);
+    world.Remove<EmissiveLightSlot>(a);
+    EXPECT_EQ(EncodeInstanceData(world, a).m_data.m_lightSlotId, UINT32_MAX);
+    EXPECT_EQ(EncodeInstanceData(world, b).m_data.m_lightSlotId, lightSlotB);
 }
 
 TEST_F(InstanceBindingSystemTest, FirstAppearanceHasNoMotionHistoryDespiteTheFallbackMatrix)

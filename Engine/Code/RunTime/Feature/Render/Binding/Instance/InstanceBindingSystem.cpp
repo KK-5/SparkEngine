@@ -19,7 +19,6 @@
 #include <Resource/AssetManagerInterface.h>
 
 #include <Binding/BindingSpaces.h>
-#include <Binding/ShaderUsage.h>
 #include <Binding/SharedBindings.h>
 #include <Binding/SharedGroupLayouts.h>
 #include <Pass/ComputePass.h>
@@ -28,9 +27,9 @@
 
 #include <Math/MathUtils.h>
 
-#include <Material/MaterialUtils.h>         // MaterialComponent / StandardPBR / GetDefaultMaterial
-#include <Binding/Material/MaterialBinding.h>   // MaterialSlot
 #include <Binding/Geometry/GeometryBinding.h>
+#include <Binding/Material/MaterialBinding.h>
+#include <Binding/Scene/SceneBinding.h>
 #include <Drawable/DrawMask.h>
 #include <DrawList/DrawList.h>
 #include <PipelineState/PipelineKeyIndex.h>
@@ -39,27 +38,6 @@ namespace Spark::Render
 {
     namespace
     {
-
-        //! The material an object draws with. The one it overrides wins over the one it
-        //! references; both are ordinary material entities by now. Falls back to the default
-        //! material when unset or dangling.
-        Material::MaterialHandle ResolveMaterial(WorldContext& world, Material::MaterialContext& matCtx, Entity e)
-        {
-            Material::MaterialHandle mh = Material::NullMaterial;
-            if (const auto* ref = world.TryGet<MaterialOverrideRef>(e))
-            {
-                mh = ref->m_material;
-            }
-            else if (const auto* mc = world.TryGet<Material::MaterialComponent>(e))
-            {
-                mh = mc->m_material;
-            }
-            if (!(matCtx.Valid(mh) && matCtx.Has<Resource::StandardPBR>(mh)))
-            {
-                mh = Material::GetDefaultMaterial(matCtx);
-            }
-            return mh;
-        }
 
         //! The material's stable g_Materials slot. Allocated once by MaterialBindingSystem and
         //! never moved, so this reads whatever is there rather than depending on a value
@@ -141,15 +119,9 @@ namespace Spark::Render
         Resource::MaterialState state;
         if (auto* matCtx = Material::MaterialExecuteContext::Current())
         {
-            const auto material = ResolveMaterial(world, *matCtx, entity);
+            const auto material = ResolveInstanceMaterial(world, *matCtx, entity);
             out.m_materialIndex = MaterialIndexOf(*matCtx, material);
             state = MaterialStateOf(*matCtx, material);
-            if (const auto* params = matCtx->TryGet<Resource::StandardPBR>(material);
-                params && matCtx->Has<MaterialSlot>(material))
-            {
-                const Math::Vector3 emission = Math::Vector3(params->m_emissive) * params->m_emissiveStrength;
-                encoded.m_emissive = emission.x > 0.0f || emission.y > 0.0f || emission.z > 0.0f;
-            }
         }
         encoded.m_key = MakePipelineKey(0, state);
         out.m_pipelineKeyIndex = PipelineKeyIndexOf(encoded.m_key).m_value;
@@ -159,7 +131,10 @@ namespace Spark::Render
         out.m_geometryIndex = geometrySlot ? geometrySlot->Get() : 0;
         out.m_drawMask = drawable ? DrawListsOf(state) : 0;
         out.m_motionHistoryValid = historyValid && drawable ? 1u : 0u;
-        encoded.m_emissive = encoded.m_emissive && drawable;
+        if (const auto* slot = world.TryGet<EmissiveLightSlot>(entity))
+        {
+            out.m_lightSlotId = slot->m_slot.Get();
+        }
         return encoded;
     }
 
@@ -179,22 +154,12 @@ namespace Spark::Render
 
         m_instanceCountEntity = rhiCtx.CreateEntity();
         rhiCtx.Add<ActiveInstanceCount>(m_instanceCountEntity, ActiveInstanceCount{ 0 });
-        rhiCtx.Add<EmissiveInstanceCount>(m_instanceCountEntity, EmissiveInstanceCount{ 0 });
         rhiCtx.Add<OpaqueSceneBounds>(m_instanceCountEntity, OpaqueSceneBounds{});
 
         if (m_activeList.Init(rhiCtx, device, ObjectName("InstanceIDBuffer"),
             RHI::BufferBindFlags::InputAssembly | RHI::BufferBindFlags::ShaderReadWrite))
         {
             rhiCtx.Add<InstanceIDBufferTag>(m_activeList.GetResource());
-        }
-        if (m_emissiveList.Init(rhiCtx, device, ObjectName("EmissiveInstanceIDBuffer"),
-            RHI::BufferBindFlags::ShaderReadWrite))
-        {
-            const auto resource = m_emissiveList.GetResource();
-            rhiCtx.Add<EmissiveInstanceIDBufferTag>(resource);
-            rhiCtx.Add<ShaderBufferUsage>(resource, ShaderBufferUsage{
-                ShaderInputBinding{ kInstanceSpaceId, RHI::InputName(SharedInput::EmissiveInstanceIDs), 0 },
-                RHI::BufferViewDescriptor::CreateStructured(0, InstanceCapacity, sizeof(uint32_t)) });
         }
     }
 
@@ -256,16 +221,6 @@ namespace Spark::Render
                     RHI::AttachmentId("InstanceIDUpdate"), RHI::AttachmentId("InstanceIDs"));
             })
             .Finalize();
-
-        SPARK_COMPUTE_PASS(passContext, "EmissiveInstanceIDUpdate")
-            .Queue(RHI::HardwareQueueClass::Graphics)
-            .ComputeShader(shaderAsset)
-            .Build([this](ComputePassScopes& p)
-            {
-                BuildInstanceIDUpdate(p, m_emissiveList,
-                    RHI::AttachmentId("EmissiveInstanceIDUpdate"), RHI::AttachmentId("EmissiveInstanceIDs"));
-            })
-            .Finalize();
     }
 
     void InstanceBindingSystem::Update()
@@ -288,11 +243,9 @@ namespace Spark::Render
 
         CollectActiveSlots(*world);
         const uint32_t instanceCount = m_activeList.Update(m_activeSlots);
-        const uint32_t emissiveCount = m_emissiveList.Update(m_emissiveSlots);
         if (m_instanceCountEntity != RHI::NullHandle)
         {
             rhiCtx->AddOrReplace<ActiveInstanceCount>(m_instanceCountEntity, ActiveInstanceCount{ instanceCount });
-            rhiCtx->AddOrReplace<EmissiveInstanceCount>(m_instanceCountEntity, EmissiveInstanceCount{ emissiveCount });
             rhiCtx->Get<OpaqueSceneBounds>(m_instanceCountEntity) = opaqueBounds;
         }
 
@@ -344,7 +297,6 @@ namespace Spark::Render
         auto* drawCtx = DrawExecuteContext::Current();
         const auto& slots = world.GetStorage<InstanceSlot>();
         OpaqueSceneBounds opaqueBounds;
-        m_emissiveSlots.clear();
         world.GetView<InstanceSlot, Transform::WorldTransformMatrix, MeshGeometry>(Exclude<DeadTag>).each(
             [&](Entity e, const InstanceSlot& slot,
                 const Transform::WorldTransformMatrix& transform, const MeshGeometry& geometry)
@@ -372,10 +324,6 @@ namespace Spark::Render
                     encoded.m_key, geometry, transform.m_worldMatrix);
             }
             m_instances.Set(slot.Get(), out);
-            if (encoded.m_emissive)
-            {
-                m_emissiveSlots.push_back(slot.Get());
-            }
         });
         return opaqueBounds;
     }
@@ -392,9 +340,7 @@ namespace Spark::Render
         m_instanceCountEntity = RHI::NullHandle;
 
         m_activeList.Shutdown(rhiCtx);
-        m_emissiveList.Shutdown(rhiCtx);
         m_activeSlots.clear();
-        m_emissiveSlots.clear();
     }
 
     void InstanceBindingSystem::CollectActiveSlots(WorldContext& world)

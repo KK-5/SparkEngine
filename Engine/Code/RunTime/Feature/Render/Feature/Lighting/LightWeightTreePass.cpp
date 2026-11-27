@@ -1,9 +1,7 @@
 #include "LightWeightTreePass.h"
 #include "LightWeightTree.h"
 
-#include <Binding/Geometry/GeometryBinding.h>
 #include <Binding/Instance/InstanceBinding.h>
-#include <Binding/Material/MaterialBinding.h>
 #include <Binding/Scene/SceneBinding.h>
 #include <Log/ILogSystem.h>
 #include <Math/Bit.h>
@@ -21,13 +19,9 @@ namespace Spark::Render
         Layout layout;
         for (auto [entity, count] : context.GetView<SceneLightSlotCount>().each())
         {
-            layout.m_sceneLightSlotCount = count.m_count;
+            layout.m_lightSlotCount = count.m_count;
         }
-        for (auto [entity, count] : context.GetView<EmissiveInstanceCount>().each())
-        {
-            layout.m_emissiveInstanceCount = count.m_count;
-        }
-        const uint32_t leafCount = layout.LeafCount();
+        const uint32_t leafCount = layout.m_lightSlotCount;
         layout.m_leafBase = leafCount != 0 ? NextPowerOfTwo(leafCount) : 0;
         return layout;
     }
@@ -57,18 +51,7 @@ namespace Spark::Render
                     return;
                 }
                 const RHI::AttachmentId lightsName("SceneLights");
-                const RHI::AttachmentId emittersName("LightingEmitters");
-                const RHI::AttachmentId instancesName("LightingInstances");
-                const RHI::AttachmentId geometryName("LightingGeometry");
-                const RHI::AttachmentId materialsName("LightingMaterials");
-                if (layout.m_sceneLightSlotCount != 0 && !p.ImportShared<LightBufferTag>(lightsName))
-                {
-                    return;
-                }
-                if (layout.m_emissiveInstanceCount != 0 && !(p.ImportShared<EmissiveInstanceIDBufferTag>(emittersName)
-                    && p.ImportShared<InstancePoolTag>(instancesName)
-                    && p.ImportShared<GeometryPoolTag>(geometryName)
-                    && p.ImportShared<MaterialPoolTag>(materialsName)))
+                if (!p.ImportShared<LightBufferTag>(lightsName))
                 {
                     return;
                 }
@@ -95,24 +78,16 @@ namespace Spark::Render
                 {
                     const bool writeLeaves = nodeBase == layout.m_leafBase;
                     auto scope = p.Scope();
-                    if (writeLeaves && layout.m_sceneLightSlotCount != 0)
+                    if (writeLeaves)
                     {
                         scope.ReadBuffer(lightsName);
-                    }
-                    if (writeLeaves && layout.m_emissiveInstanceCount != 0)
-                    {
-                        scope.ReadBuffer(emittersName);
-                        scope.ReadBuffer(instancesName);
-                        scope.ReadBuffer(geometryName);
-                        scope.ReadBuffer(materialsName);
                     }
                     // One scope per level gives the graph a dependency between UAV accesses.
                     auto tree = writeLeaves ? scope.WriteBuffer(treeName) : scope.ReadWriteBuffer(treeName);
                     tree.View(treeView).Bind(treeInput);
                     scope.Constant(RHI::InputName("nodeBase"), nodeBase);
                     scope.Constant(RHI::InputName("leafBase"), layout.m_leafBase);
-                    scope.Constant(RHI::InputName("sceneLightSlotCount"), layout.m_sceneLightSlotCount);
-                    scope.Constant(RHI::InputName("leafCount"), layout.LeafCount());
+                    scope.Constant(RHI::InputName("leafCount"), layout.m_lightSlotCount);
                     scope.Constant(RHI::InputName("sceneRadiusSquared"), sceneRadiusSquared);
                     scope.Dispatch(nodeBase);
                     scope.Close();

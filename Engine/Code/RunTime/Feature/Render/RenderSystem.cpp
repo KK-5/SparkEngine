@@ -292,7 +292,6 @@ namespace Spark::Render
         m_sceneTextureSystem.Init(rhiCtxForInit, *Service<RHI::RHIInterface>::Get()->GetDevice());
         m_sceneBindingSystem.Init(rhiCtxForInit);
         m_viewBindingSystem.Init(rhiCtxForInit);
-        m_materialTextureSystem.Init(*Service<RHI::RHIInterface>::Get()->GetDevice());
         m_materialBindingSystem.Init(rhiCtxForInit);
         m_meshGeometrySystem.Init(rhiCtxForInit);
         m_geometryBindingSystem.Init(rhiCtxForInit);
@@ -340,7 +339,6 @@ namespace Spark::Render
         m_instanceBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_geometryBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_materialBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
-        m_materialTextureSystem.Shutdown();
         m_sceneBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
         m_sceneTextureSystem.Shutdown();
         m_viewBindingSystem.Shutdown(*RHI::RHIExecuteContext::Current());
@@ -383,17 +381,14 @@ namespace Spark::Render
         m_nrdSystem.PrepareFrame(rhiCtx, time);
 
         m_sceneTextureSystem.Update(rhiCtx);
-        m_sceneBindingSystem.Update(time);
-        m_materialTextureSystem.Update();
-        // MaterialBindingSystem stays first, but only so a material's slot exists before
-        // InstanceBindingSystem bakes it into InstanceData.m_materialIndex. The slot is
-        // stable now, not rewritten every frame, so this is a one-time ordering need —
-        // a material allocated later just falls back to slot 0 for one frame.
+        // Scene and instance bindings both read this frame's material slots.
         m_materialBindingSystem.Update();
         // Before the two below: what gets a geometry slot and an instance slot is what has
         // geometry, and the instance stores the geometry slot.
         m_meshGeometrySystem.Update();
         m_geometryBindingSystem.Update();
+        // Publish mesh light slots before InstanceBindingSystem encodes their IDs.
+        m_sceneBindingSystem.Update(time);
         // Last frame's draw preparation goes, before the encoding writes this frame's.
         m_drawContext.Clear();
         m_instanceBindingSystem.Update();

@@ -17,14 +17,11 @@
 
 namespace Spark::Render
 {
-    //! Encodes a world entity with MeshGeometry + WorldTransformMatrix. Emissive is
-    //! true only for a geometry-ready instance with a GPU material slot and positive
-    //! emission, resolving overrides and fallback exactly as the instance record does.
+    //! The instance record and draw pipeline key for a world entity with geometry and a transform.
     struct EncodedInstance
     {
         InstanceData m_data;
         PipelineKey m_key;
-        bool m_emissive = false;
     };
 
     EncodedInstance EncodeInstanceData(WorldContext& world, Entity entity);
@@ -36,8 +33,7 @@ namespace Spark::Render
     //! A renderable's slot is an InstanceSlot, an element of g_Instances, a DeviceArray, which
     //! writes the records that changed. A renderable's position is its place in the
     //! InstanceSlot storage, which entt keeps packed; ActiveInstanceList puts the list on the
-    //! GPU. Emissive candidates are collected during the same encoding and uploaded as
-    //! another packed ID list. A pass of this system applies the writes of each.
+    //! GPU. Instance records also carry the current emissive slot assigned by SceneBindingSystem.
     //!
     //! Plain helper, not ISystem — owned by RenderSystem, ticked after ViewBindingSystem
     //! and before the draw lists are culled and grouped.
@@ -61,15 +57,13 @@ namespace Spark::Render
         //! This frame's active list into m_activeSlots.
         void CollectActiveSlots(WorldContext& world);
 
-        RHI::RHIHandle m_instanceCountEntity = RHI::NullHandle;  // active + emissive counts
+        RHI::RHIHandle m_instanceCountEntity = RHI::NullHandle;
 
         //! g_Instances, carrying InstancePoolTag.
         DeviceArray             m_instances;
         ActiveInstanceList      m_activeList;
-        ActiveInstanceList      m_emissiveList;
         //! This frame's active list: position -> slot.
         eastl::vector<uint32_t> m_activeSlots;
-        eastl::vector<uint32_t> m_emissiveSlots;
 
         // This frame's encoded instances per key and draw-mask bit, published as DrawListKeys.
         DrawListKeyCounter m_keyCounter;

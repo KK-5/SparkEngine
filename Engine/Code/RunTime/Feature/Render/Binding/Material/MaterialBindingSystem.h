@@ -6,6 +6,7 @@
 #include <Binding/DeviceArray.h>
 #include <Material/Components.h>
 #include <Material/MaterialContext.h>
+#include <Material/MaterialTextureSystem.h>
 #include <Pass/PassContext.h>
 
 #include "MaterialBinding.h"
@@ -15,7 +16,8 @@ namespace Spark::Render
     //! Owns the g_Materials array (space3) + its ShaderBindings. Every material entity
     //! carrying Resource::StandardPBR gets a stable slot, a MaterialSlot, and its parameters
     //! are encoded into that slot's g_Materials record. g_Materials is a DeviceArray, which
-    //! writes the records that changed: a material's, when it is edited or a texture arrives.
+    //! writes the records that changed when a material is edited or a texture arrives.
+    //! Update synchronizes overrides, resolves textures and publishes the material records.
     //!
     //! A world entity's StandardPBROverride is synthesized into a material entity of its
     //! own here, so the buffer keeps one population and the shader keeps one array. That
@@ -46,6 +48,7 @@ namespace Spark::Render
         //! A slot for each material with StandardPBR; one that lost it gives its back.
         void AllocateSlots(Material::MaterialContext& matCtx);
 
+        MaterialTextureSystem m_textureSystem;
 
         //! g_Materials, carrying MaterialPoolTag.
         DeviceArray m_materials;
