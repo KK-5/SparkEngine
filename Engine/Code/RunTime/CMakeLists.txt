@@ -27,6 +27,10 @@ add_library(${TARGET_NAME}
     Engine.cpp
 )
 
+if(MSVC)
+    set_property(SOURCE Engine.cpp APPEND PROPERTY COMPILE_OPTIONS /bigobj)
+endif()
+
 target_link_libraries(${TARGET_NAME}
     PUBLIC
         SparkCore

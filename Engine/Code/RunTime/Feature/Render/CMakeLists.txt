@@ -79,6 +79,11 @@ add_library(${TARGET_NAME} STATIC
     ${SOURCES}
 )
 
+if(MSVC)
+    # This translation unit can exceed the COFF section limit with debug information enabled.
+    set_property(SOURCE RenderGraph/RenderGraphCompiler.cpp APPEND PROPERTY COMPILE_OPTIONS /bigobj)
+endif()
+
 target_link_libraries(${TARGET_NAME}
     PRIVATE
         SparkAssetManager
